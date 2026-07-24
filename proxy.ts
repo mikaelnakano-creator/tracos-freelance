@@ -3,7 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 const protectedPrefixes = ["/admin", "/freelancer"];
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const shouldProtect = protectedPrefixes.some((prefix) =>
     request.nextUrl.pathname.startsWith(prefix),
   );
