@@ -5,6 +5,8 @@ const labels: Record<EventStatus, string> = {
   draft: "Rascunho",
   open: "Aberto",
   assigned: "Designado",
+  partially_assigned: "Equipe parcial",
+  fully_assigned: "Equipe completa",
   completed: "Realizado",
   cancelled: "Cancelado",
 };
@@ -16,6 +18,8 @@ const tones: Record<
   draft: "neutral",
   open: "warning",
   assigned: "info",
+  partially_assigned: "warning",
+  fully_assigned: "success",
   completed: "success",
   cancelled: "danger",
 };

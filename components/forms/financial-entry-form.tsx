@@ -10,17 +10,26 @@ import {
   financialEntrySchema,
   type FinancialEntryFormValues,
 } from "@/lib/domain/schemas";
-import type { EventRecord, Profile } from "@/lib/domain/types";
+import type {
+  EventProfessionalSlot,
+  EventRecord,
+  EventService,
+  Profile,
+} from "@/lib/domain/types";
 import { formatMoney, parseMoneyToCents } from "@/lib/domain/money";
 
 export function FinancialEntryForm({
   freelancers,
   events,
+  eventServices,
+  slots,
   balancesByFreelancer,
   onSubmit,
 }: {
   freelancers: Profile[];
   events: EventRecord[];
+  eventServices: EventService[];
+  slots: EventProfessionalSlot[];
   balancesByFreelancer: Record<string, number>;
   onSubmit: (values: FinancialEntryFormValues) => void;
 }) {
@@ -43,7 +52,13 @@ export function FinancialEntryForm({
 
   const type = useWatch({ control, name: "entryType" });
   const freelancerId = useWatch({ control, name: "freelancerId" });
+  const eventId = useWatch({ control, name: "eventId" });
   const amountValue = useWatch({ control, name: "amount" });
+  const availableSlots = slots.filter(
+    (slot) =>
+      slot.assignedFreelancerId === freelancerId &&
+      (!eventId || slot.eventId === eventId),
+  );
   const currentBalance = balancesByFreelancer[freelancerId] ?? 0;
   const amount = parseMoneyToCents(amountValue ?? "0");
   const impact = ["payment", "advance", "negative_adjustment"].includes(type)
@@ -64,13 +79,41 @@ export function FinancialEntryForm({
       </Field>
 
       <Field label="Evento opcional" error={errors.eventId?.message}>
-        <Select {...register("eventId")}>
+        <Select
+          {...register("eventId")}
+          onChange={(event) => {
+            setValue("eventId", event.target.value);
+            setValue("eventProfessionalSlotId", "");
+          }}
+        >
           <option value="">Pagamento geral</option>
           {events.map((event) => (
             <option key={event.id} value={event.id}>
               {event.title}
             </option>
           ))}
+        </Select>
+      </Field>
+
+      <Field
+        label="Vaga ou serviço opcional"
+        error={errors.eventProfessionalSlotId?.message}
+      >
+        <Select {...register("eventProfessionalSlotId")}>
+          <option value="">Sem vínculo com vaga específica</option>
+          {availableSlots.map((slot) => {
+            const service = eventServices.find(
+              (item) => item.id === slot.eventServiceId,
+            );
+            const event = events.find((item) => item.id === slot.eventId);
+            return (
+              <option key={slot.id} value={slot.id}>
+                {event?.title ?? "Evento"} -{" "}
+                {service?.serviceNameSnapshot ?? "Serviço"} - Vaga{" "}
+                {slot.slotNumber}
+              </option>
+            );
+          })}
         </Select>
       </Field>
 

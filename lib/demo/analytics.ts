@@ -1,17 +1,26 @@
-import type { EventRecord, FinancialEntry, Profile } from "@/lib/domain/types";
+import type {
+  EventProfessionalSlot,
+  EventRecord,
+  EventService,
+  FinancialEntry,
+  Profile,
+} from "@/lib/domain/types";
 import {
-  getEventBalance,
-  getEventPaymentTotal,
+  getActiveEventSlots,
+  getEventTeamSummary,
   getFreelancerBalance,
+  getSlotFinancialSummary,
 } from "@/lib/domain/finance";
 
 export function getAdminMetrics(
   events: EventRecord[],
   entries: FinancialEntry[],
+  slots: EventProfessionalSlot[],
 ) {
+  const summaries = events.map((event) =>
+    getEventTeamSummary(event, slots, entries),
+  );
   const completed = events.filter((event) => event.status === "completed");
-  const open = events.filter((event) => event.status === "open");
-  const assigned = events.filter((event) => event.status === "assigned");
   const generated = entries
     .filter((entry) => entry.entryType === "event_earning")
     .reduce((sum, entry) => sum + entry.amountCents, 0);
@@ -35,12 +44,30 @@ export function getAdminMetrics(
     .reduce((sum, balance) => sum + Math.abs(balance), 0);
 
   return {
-    upcomingEvents: assigned.length,
-    openEvents: open.length,
-    eventsWithoutFreelancer: events.filter(
-      (event) => !event.assignedFreelancerId,
-    ).length,
+    upcomingEvents: events.filter((event) => event.status !== "completed")
+      .length,
     completedThisMonth: completed.length,
+    fullyAssignedEvents: events.filter(
+      (event) =>
+        event.status === "fully_assigned" || event.status === "completed",
+    ).length,
+    incompleteEvents: events.filter(
+      (event) =>
+        event.status === "open" || event.status === "partially_assigned",
+    ).length,
+    openSlots: summaries.reduce((sum, summary) => sum + summary.openSlots, 0),
+    assignedSlots: summaries.reduce(
+      (sum, summary) => sum + summary.assignedSlots,
+      0,
+    ),
+    neededProfessionals: summaries.reduce(
+      (sum, summary) => sum + summary.totalSlots,
+      0,
+    ),
+    forecastValue: summaries.reduce(
+      (sum, summary) => sum + summary.totalAgreedFee,
+      0,
+    ),
     generatedThisMonth: generated,
     paidThisMonth: paid,
     totalDue,
@@ -53,11 +80,23 @@ export function getFreelancerMetrics(
   freelancerId: string,
   events: EventRecord[],
   entries: FinancialEntry[],
+  slots: EventProfessionalSlot[],
 ) {
-  const assigned = events.filter(
-    (event) => event.assignedFreelancerId === freelancerId,
+  const assignedSlots = slots.filter(
+    (slot) =>
+      slot.assignedFreelancerId === freelancerId && slot.status !== "cancelled",
   );
-  const available = events.filter((event) => event.status === "open");
+  const eventIds = new Set(assignedSlots.map((slot) => slot.eventId));
+  const available = slots.filter((slot) => {
+    if (slot.status !== "open" || slot.assignedFreelancerId !== null)
+      return false;
+    return !slots.some(
+      (current) =>
+        current.eventId === slot.eventId &&
+        current.assignedFreelancerId === freelancerId &&
+        current.status !== "cancelled",
+    );
+  });
   const generated = entries
     .filter(
       (entry) =>
@@ -74,14 +113,19 @@ export function getFreelancerMetrics(
     .reduce((sum, entry) => sum + Math.abs(entry.amountCents), 0);
 
   return {
-    upcomingJobs: assigned.filter((event) => event.status === "assigned")
+    upcomingJobs: assignedSlots.filter((slot) => slot.status === "assigned")
       .length,
-    completedThisMonth: assigned.filter((event) => event.status === "completed")
-      .length,
+    completedThisMonth: assignedSlots.filter(
+      (slot) => slot.status === "completed",
+    ).length,
+    completedEvents: events.filter(
+      (event) => eventIds.has(event.id) && event.status === "completed",
+    ).length,
     generatedThisMonth: generated,
     paidThisMonth: paid,
     balance: getFreelancerBalance(entries, freelancerId),
     availableJobs: available.length,
+    assignedSlots: assignedSlots.length,
   };
 }
 
@@ -89,13 +133,22 @@ export function getFreelancerSummaries(
   profiles: Profile[],
   events: EventRecord[],
   entries: FinancialEntry[],
+  slots: EventProfessionalSlot[],
 ) {
   return profiles
     .filter((profile) => profile.role === "freelancer")
     .map((profile) => {
-      const freelancerEvents = events.filter(
-        (event) => event.assignedFreelancerId === profile.id,
+      const freelancerSlots = slots.filter(
+        (slot) =>
+          slot.assignedFreelancerId === profile.id &&
+          slot.status !== "cancelled",
       );
+      const nextSlot = freelancerSlots.find(
+        (slot) => slot.status === "assigned",
+      );
+      const nextEvent = nextSlot
+        ? events.find((event) => event.id === nextSlot.eventId)
+        : undefined;
       const totalGenerated = entries
         .filter(
           (entry) =>
@@ -113,11 +166,15 @@ export function getFreelancerSummaries(
 
       return {
         profile,
-        nextEvent: freelancerEvents.find(
-          (event) => event.status === "assigned",
-        ),
-        completedEvents: freelancerEvents.filter(
-          (event) => event.status === "completed",
+        nextEvent,
+        nextSlot,
+        completedEvents: new Set(
+          freelancerSlots
+            .filter((slot) => slot.status === "completed")
+            .map((slot) => slot.eventId),
+        ).size,
+        completedSlots: freelancerSlots.filter(
+          (slot) => slot.status === "completed",
         ).length,
         totalGenerated,
         totalPaid,
@@ -126,13 +183,44 @@ export function getFreelancerSummaries(
     });
 }
 
+export function getServiceRevenueRows(
+  services: EventService[],
+  slots: EventProfessionalSlot[],
+) {
+  return services.map((service) => {
+    const serviceSlots = slots.filter(
+      (slot) =>
+        slot.eventServiceId === service.id && slot.status !== "cancelled",
+    );
+
+    return {
+      service,
+      professionals: serviceSlots.length,
+      totalAgreedFee: serviceSlots.reduce(
+        (sum, slot) => sum + slot.agreedFeeCents,
+        0,
+      ),
+    };
+  });
+}
+
 export function getEventFinancialRows(
   events: EventRecord[],
+  slots: EventProfessionalSlot[],
   entries: FinancialEntry[],
 ) {
   return events.map((event) => ({
     event,
-    totalPaid: getEventPaymentTotal(entries, event.id),
-    balance: getEventBalance(event, entries),
+    summary: getEventTeamSummary(event, slots, entries),
   }));
+}
+
+export function getSlotRowsForEvent(
+  eventId: string,
+  slots: EventProfessionalSlot[],
+  entries: FinancialEntry[],
+) {
+  return getActiveEventSlots(slots, eventId).map((slot) =>
+    getSlotFinancialSummary(slot, entries),
+  );
 }

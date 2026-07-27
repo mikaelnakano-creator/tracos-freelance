@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import {
-  ArrowLeftRight,
   Banknote,
   BarChart3,
   CalendarCheck,
@@ -40,8 +39,8 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { Button, LinkButton } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Button, LinkButton } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -49,51 +48,67 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { EmptyState } from "@/components/ui/skeleton";
 import { Field, Input, Select, Textarea } from "@/components/ui/input";
-import { PageHeader } from "@/components/app/page-header";
-import { StatCard } from "@/components/app/stat-card";
-import { DateRangeFilter } from "@/components/app/date-range-filter";
-import { EventCard } from "@/components/app/event-card";
-import { DataTable } from "@/components/app/data-table";
-import { BalanceDisplay } from "@/components/app/balance-display";
-import { FinancialSummary } from "@/components/app/financial-summary";
-import { EventStatusBadge } from "@/components/app/event-status-badge";
+import { EmptyState } from "@/components/ui/skeleton";
 import { AuditTimeline } from "@/components/app/audit-timeline";
+import { BalanceDisplay } from "@/components/app/balance-display";
+import { EventStatusBadge } from "@/components/app/event-status-badge";
+import { EventTeamProgress } from "@/components/app/event-team-progress";
+import { EventTeamSummary } from "@/components/app/event-team-summary";
+import { FinancialSummary } from "@/components/app/financial-summary";
+import { OpenSlotCard } from "@/components/app/open-slot-card";
+import { PageHeader } from "@/components/app/page-header";
+import { ServiceGroupCard } from "@/components/app/service-group-card";
+import { StatCard } from "@/components/app/stat-card";
 import { EventForm } from "@/components/forms/event-form";
 import { FinancialEntryForm } from "@/components/forms/financial-entry-form";
 import { GoogleCalendarImportDialog } from "@/components/google/google-calendar-import-dialog";
 import {
   demoAcceptances,
   demoAuditLogs,
+  demoEventServices,
   demoEvents,
   demoFinancialEntries,
   demoGoogleEvents,
   demoOrganization,
+  demoProfessionalSlots,
   demoProfiles,
+  demoServices,
 } from "@/lib/demo/seed-data";
 import {
   getAdminMetrics,
   getFreelancerMetrics,
   getFreelancerSummaries,
+  getServiceRevenueRows,
 } from "@/lib/demo/analytics";
 import {
-  acceptOpenEvent,
+  acceptOpenEventSlot,
   canProfileReadEvent,
   canProfileReadFinancialEntry,
-  completeEventIdempotently,
+  canProfileReadSlot,
+  cancelSlot,
+  completeAllAssignedSlots,
+  completeSlotIdempotently,
+  getActiveEventSlots,
+  getEventSlots,
+  getEventTeamSummary,
   getFreelancerBalance,
+  getSlotFinancialSummary,
+  recalculateEventStatus,
   registerPayment,
+  reopenSlot,
 } from "@/lib/domain/finance";
 import {
-  parseMoneyToCents,
-  formatMoney,
   describeBalance,
+  formatMoney,
+  parseMoneyToCents,
 } from "@/lib/domain/money";
 import type {
   AuditLog,
   EventAcceptance,
+  EventProfessionalSlot,
   EventRecord,
+  EventService,
   FinancialEntry,
   GoogleCalendarEvent,
   Profile,
@@ -145,7 +160,7 @@ const adminLinks = [
 
 const freelancerLinks = [
   { href: "/freelancer/dashboard", label: "Meu painel", icon: LayoutDashboard },
-  { href: "/freelancer/eventos", label: "Meus eventos", icon: CalendarCheck },
+  { href: "/freelancer/eventos", label: "Meus trabalhos", icon: CalendarCheck },
   {
     href: "/freelancer/oportunidades",
     label: "Oportunidades",
@@ -171,16 +186,17 @@ export function TracosWorkspace({
   role: "admin" | "freelancer";
 }) {
   const [events, setEvents] = useState<EventRecord[]>(demoEvents);
+  const [eventServices, setEventServices] =
+    useState<EventService[]>(demoEventServices);
+  const [professionalSlots, setProfessionalSlots] = useState<
+    EventProfessionalSlot[]
+  >(demoProfessionalSlots);
   const [profiles, setProfiles] = useState<Profile[]>(demoProfiles);
   const [entries, setEntries] =
     useState<FinancialEntry[]>(demoFinancialEntries);
   const [acceptances, setAcceptances] =
     useState<EventAcceptance[]>(demoAcceptances);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>(demoAuditLogs);
-  const [period, setPeriod] = useState("month");
-  const [query, setQuery] = useState("");
-  const [status, setStatus] = useState("all");
-  const [freelancerFilter, setFreelancerFilter] = useState("all");
   const [selectedFreelancerId, setSelectedFreelancerId] = useState(
     demoProfiles.find((profile) => profile.role === "freelancer")?.id ?? "",
   );
@@ -189,9 +205,7 @@ export function TracosWorkspace({
   const [importedEvent, setImportedEvent] =
     useState<GoogleCalendarEvent | null>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [toast, setToast] = useState(
-    "MVP em modo demonstração com regras reais.",
-  );
+  const [toast, setToast] = useState("Sistema pronto para operação.");
 
   const admin = profiles.find((profile) => profile.role === "admin")!;
   const activeFreelancers = profiles.filter(
@@ -201,13 +215,19 @@ export function TracosWorkspace({
     profiles.find((profile) => profile.id === selectedFreelancerId) ??
     activeFreelancers[0];
   const currentUser = role === "admin" ? admin : currentFreelancer;
-  const adminMetrics = getAdminMetrics(events, entries);
+  const adminMetrics = getAdminMetrics(events, entries, professionalSlots);
   const freelancerMetrics = getFreelancerMetrics(
     currentFreelancer.id,
     events,
     entries,
+    professionalSlots,
   );
-  const freelancerSummaries = getFreelancerSummaries(profiles, events, entries);
+  const freelancerSummaries = getFreelancerSummaries(
+    profiles,
+    events,
+    entries,
+    professionalSlots,
+  );
   const balancesByFreelancer = Object.fromEntries(
     profiles
       .filter((profile) => profile.role === "freelancer")
@@ -224,30 +244,48 @@ export function TracosWorkspace({
   const visibleEvents =
     role === "admin"
       ? events
-      : events.filter((event) => canProfileReadEvent(currentFreelancer, event));
+      : events.filter((event) =>
+          canProfileReadEvent(currentFreelancer, event, professionalSlots),
+        );
   const visibleEntries =
     role === "admin"
       ? entries
       : entries.filter((entry) =>
           canProfileReadFinancialEntry(currentFreelancer, entry),
         );
+  const visibleSlots =
+    role === "admin"
+      ? professionalSlots
+      : professionalSlots.filter((slot) =>
+          canProfileReadSlot(currentFreelancer, slot),
+        );
 
   const monthlyChart = useMemo(
     () => [
-      { month: "Mar", eventos: 7, gerado: 1600, pago: 1280 },
-      { month: "Abr", eventos: 9, gerado: 2300, pago: 2100 },
-      { month: "Mai", eventos: 8, gerado: 2050, pago: 1760 },
-      { month: "Jun", eventos: 12, gerado: 3120, pago: 2860 },
-      { month: "Jul", eventos: events.length, gerado: 1180, pago: 750 },
-      { month: "Ago", eventos: 5, gerado: 1120, pago: 260 },
+      { month: "Mar", eventos: 7, vagas: 16, gerado: 1600, pago: 1280 },
+      { month: "Abr", eventos: 9, vagas: 22, gerado: 2300, pago: 2100 },
+      { month: "Mai", eventos: 8, vagas: 19, gerado: 2050, pago: 1760 },
+      { month: "Jun", eventos: 12, vagas: 31, gerado: 3120, pago: 2860 },
+      {
+        month: "Jul",
+        eventos: events.length,
+        vagas: professionalSlots.length,
+        gerado: adminMetrics.generatedThisMonth / 100,
+        pago: adminMetrics.paidThisMonth / 100,
+      },
     ],
-    [events.length],
+    [
+      adminMetrics.generatedThisMonth,
+      adminMetrics.paidThisMonth,
+      events.length,
+      professionalSlots.length,
+    ],
   );
 
   const statusChart = [
-    "draft",
     "open",
-    "assigned",
+    "partially_assigned",
+    "fully_assigned",
     "completed",
     "cancelled",
   ].map((item) => ({
@@ -257,9 +295,34 @@ export function TracosWorkspace({
 
   const byFreelancerChart = freelancerSummaries.map((summary) => ({
     name: summary.profile.fullName.split(" ")[0],
-    eventos: summary.completedEvents,
+    trabalhos: summary.completedSlots,
     saldo: summary.balance / 100,
   }));
+
+  const serviceChart = getServiceRevenueRows(
+    eventServices,
+    professionalSlots,
+  ).reduce<Array<{ name: string; valor: number; profissionais: number }>>(
+    (rows, row) => {
+      const existing = rows.find(
+        (item) => item.name === row.service.serviceNameSnapshot,
+      );
+      if (existing) {
+        existing.valor += row.totalAgreedFee / 100;
+        existing.profissionais += row.professionals;
+        return rows;
+      }
+      return [
+        ...rows,
+        {
+          name: row.service.serviceNameSnapshot,
+          valor: row.totalAgreedFee / 100,
+          profissionais: row.professionals,
+        },
+      ];
+    },
+    [],
+  );
 
   function addAudit(action: string, entityType: string, entityIdValue: string) {
     const createdAt = new Date().toISOString();
@@ -272,11 +335,17 @@ export function TracosWorkspace({
         entityType,
         entityId: entityIdValue,
         oldValues: null,
-        newValues: { source: "demo-ui" },
+        newValues: { source: "ui" },
         createdAt,
       },
       ...current,
     ]);
+  }
+
+  function updateEvent(nextEvent: EventRecord) {
+    setEvents((current) =>
+      current.map((event) => (event.id === nextEvent.id ? nextEvent : event)),
+    );
   }
 
   function showToast(message: string) {
@@ -294,34 +363,96 @@ export function TracosWorkspace({
     const endsAt = values.allDay
       ? null
       : toIsoDateTime(values.date, values.endTime ?? values.startTime);
-    const assignmentMode =
-      publishAction === "open" || values.assignmentMode === "open"
-        ? "open"
-        : "direct";
-    const assignedFreelancerId =
-      assignmentMode === "direct"
-        ? (values.assignedFreelancerId ?? null)
-        : null;
-    const nextEvent: EventRecord = {
-      id: makeId("event"),
+    const now = new Date().toISOString();
+    const eventId = makeId("event");
+    const totalFee = values.services.reduce(
+      (sum, service) =>
+        sum +
+        service.slots.reduce(
+          (slotSum, slot) => slotSum + parseMoneyToCents(slot.agreedFee),
+          0,
+        ),
+      0,
+    );
+
+    const duplicateGoogleEvent = events.some(
+      (event) =>
+        values.googleCalendarId &&
+        values.googleEventId &&
+        event.googleCalendarId === values.googleCalendarId &&
+        event.googleEventId === values.googleEventId,
+    );
+
+    if (duplicateGoogleEvent) {
+      showToast("Este evento do Google Agenda já foi importado.");
+      return;
+    }
+
+    const nextServices: EventService[] = values.services.map((service) => ({
+      id: makeId("event-service"),
+      organizationId: demoOrganization.id,
+      eventId,
+      serviceId: service.serviceId,
+      serviceNameSnapshot: service.serviceNameSnapshot,
+      quantityRequired: service.quantityRequired,
+      notes: service.notes || null,
+      createdAt: now,
+      updatedAt: now,
+    }));
+
+    const nextSlots: EventProfessionalSlot[] = values.services.flatMap(
+      (service, serviceIndex) =>
+        service.slots.map((slot) => {
+          const assignedFreelancerId =
+            slot.assignmentMode === "direct"
+              ? slot.assignedFreelancerId || null
+              : null;
+          return {
+            id: makeId("slot"),
+            organizationId: demoOrganization.id,
+            eventId,
+            eventServiceId: nextServices[serviceIndex].id,
+            slotNumber: slot.slotNumber,
+            assignmentMode: slot.assignmentMode,
+            assignedFreelancerId,
+            agreedFeeCents: parseMoneyToCents(slot.agreedFee),
+            status:
+              publishAction === "draft"
+                ? "draft"
+                : assignedFreelancerId
+                  ? "assigned"
+                  : "open",
+            acceptedAt: assignedFreelancerId ? now : null,
+            completedAt: null,
+            cancelledAt: null,
+            cancellationReason: null,
+            notes: slot.notes || null,
+            createdBy: admin.id,
+            createdAt: now,
+            updatedAt: now,
+          };
+        }),
+    );
+
+    const baseEvent: EventRecord = {
+      id: eventId,
       organizationId: demoOrganization.id,
       title: values.title,
-      serviceName: values.serviceName,
+      serviceName: values.services
+        .map((service) => service.serviceNameSnapshot)
+        .join(", "),
       description: values.description ?? "",
       locationName: values.locationName,
       locationAddress: values.locationAddress ?? "",
       startsAt,
       endsAt,
       allDay: values.allDay,
-      freelancerFeeCents: parseMoneyToCents(values.freelancerFee),
-      status:
-        publishAction === "draft"
-          ? "draft"
-          : assignmentMode === "open"
-            ? "open"
-            : "assigned",
-      assignmentMode,
-      assignedFreelancerId,
+      freelancerFeeCents: totalFee,
+      status: publishAction === "draft" ? "draft" : "open",
+      assignmentMode: nextSlots.some((slot) => slot.status === "open")
+        ? "open"
+        : "direct",
+      assignedFreelancerId: null,
       googleCalendarId: values.googleCalendarId || null,
       googleEventId: values.googleEventId || null,
       googleEventLink: values.googleEventLink || null,
@@ -330,81 +461,39 @@ export function TracosWorkspace({
       cancelledAt: null,
       cancellationReason: null,
       createdBy: admin.id,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      createdAt: now,
+      updatedAt: now,
     };
-
-    const duplicateGoogleEvent = events.some(
-      (event) =>
-        nextEvent.googleCalendarId &&
-        nextEvent.googleEventId &&
-        event.googleCalendarId === nextEvent.googleCalendarId &&
-        event.googleEventId === nextEvent.googleEventId,
-    );
-
-    if (duplicateGoogleEvent) {
-      showToast("Este evento do Google Agenda já foi importado.");
-      return;
-    }
+    const nextEvent = {
+      ...baseEvent,
+      status:
+        publishAction === "draft"
+          ? "draft"
+          : recalculateEventStatus(baseEvent, nextSlots),
+    };
 
     setEvents((current) =>
       [nextEvent, ...current].sort((a, b) =>
         a.startsAt.localeCompare(b.startsAt),
       ),
     );
-    addAudit(
-      nextEvent.source === "google_calendar"
-        ? "google_event.imported"
-        : "event.created",
-      "events",
-      nextEvent.id,
-    );
+    setEventServices((current) => [...nextServices, ...current]);
+    setProfessionalSlots((current) => [...nextSlots, ...current]);
+    addAudit("event.team_created", "events", nextEvent.id);
     setImportedEvent(null);
-    showToast("Evento salvo com sucesso.");
+    showToast("Evento salvo com serviços e vagas profissionais.");
   }
 
-  function handleCompleteEvent(eventId: string) {
-    const event = events.find((item) => item.id === eventId);
-    if (!event) return;
-    const result = completeEventIdempotently({
+  function handleAcceptSlot(slotId: string) {
+    const slot = professionalSlots.find((item) => item.id === slotId);
+    const event = slot ? events.find((item) => item.id === slot.eventId) : null;
+    if (!slot || !event) return;
+
+    const result = acceptOpenEventSlot({
       event,
-      entries,
-      entryId: makeId("entry"),
-      completedAt: new Date().toISOString(),
-      actorId: admin.id,
-    });
-    setEvents((current) =>
-      current.map((item) => (item.id === eventId ? result.event : item)),
-    );
-    setEntries(result.entries);
-    addAudit("event.completed", "events", eventId);
-    showToast("Evento realizado e valor devido gerado sem duplicar receita.");
-  }
-
-  function handleCancelEvent(eventId: string) {
-    setEvents((current) =>
-      current.map((event) =>
-        event.id === eventId
-          ? {
-              ...event,
-              status: "cancelled",
-              cancelledAt: new Date().toISOString(),
-              cancellationReason: "Cancelado pela equipe administrativa.",
-              updatedAt: new Date().toISOString(),
-            }
-          : event,
-      ),
-    );
-    addAudit("event.cancelled", "events", eventId);
-    showToast("Evento cancelado e histórico atualizado.");
-  }
-
-  function handleAcceptEvent(eventId: string) {
-    const event = events.find((item) => item.id === eventId);
-    if (!event) return;
-    const result = acceptOpenEvent({
-      event,
+      slot,
       freelancer: currentFreelancer,
+      allSlots: professionalSlots,
       existingAcceptances: acceptances,
       acceptanceId: makeId("acceptance"),
       createdAt: new Date().toISOString(),
@@ -415,23 +504,140 @@ export function TracosWorkspace({
       return;
     }
 
-    setEvents((current) =>
-      current.map((item) => (item.id === eventId ? result.event : item)),
-    );
+    setProfessionalSlots(result.slots);
     setAcceptances(result.acceptances);
-    addAudit("event.accepted", "events", eventId);
-    showToast("Trabalho aceito. Você ficou com este evento.");
+    updateEvent(result.event);
+    addAudit("slot.accepted", "event_professional_slots", slotId);
+    showToast("Vaga aceita. Você ficou com este trabalho.");
+  }
+
+  function handleCompleteSlot(slotId: string) {
+    const slot = professionalSlots.find((item) => item.id === slotId);
+    const event = slot ? events.find((item) => item.id === slot.eventId) : null;
+    const service = slot
+      ? eventServices.find((item) => item.id === slot.eventServiceId)
+      : null;
+    if (!slot || !event) return;
+
+    const result = completeSlotIdempotently({
+      event,
+      slot,
+      allSlots: professionalSlots,
+      entries,
+      entryId: makeId("entry"),
+      completedAt: new Date().toISOString(),
+      actorId: admin.id,
+      serviceName: service?.serviceNameSnapshot ?? "Serviço",
+    });
+
+    setProfessionalSlots(result.slots);
+    setEntries(result.entries);
+    updateEvent(result.event);
+    addAudit("slot.completed", "event_professional_slots", slotId);
+    showToast("Vaga concluída e valor individual gerado.");
+  }
+
+  function handleCompleteAll(eventId: string) {
+    const event = events.find((item) => item.id === eventId);
+    if (!event) return;
+    const result = completeAllAssignedSlots({
+      event,
+      slots: professionalSlots,
+      services: eventServices,
+      entries,
+      idFactory: makeId,
+      completedAt: new Date().toISOString(),
+      actorId: admin.id,
+    });
+
+    setProfessionalSlots(result.slots);
+    setEntries(result.entries);
+    updateEvent(result.event);
+    addAudit("event.all_slots_completed", "events", eventId);
+    showToast("Todas as vagas preenchidas foram concluídas.");
+  }
+
+  function handleReopenSlot(slotId: string) {
+    const slot = professionalSlots.find((item) => item.id === slotId);
+    const event = slot ? events.find((item) => item.id === slot.eventId) : null;
+    if (!slot || !event) return;
+    const result = reopenSlot({
+      event,
+      slot,
+      allSlots: professionalSlots,
+      reopenedAt: new Date().toISOString(),
+    });
+    setProfessionalSlots(result.slots);
+    updateEvent(result.event);
+    addAudit("slot.reopened", "event_professional_slots", slotId);
+    showToast("Vaga reaberta.");
+  }
+
+  function handleCancelSlot(slotId: string) {
+    const slot = professionalSlots.find((item) => item.id === slotId);
+    const event = slot ? events.find((item) => item.id === slot.eventId) : null;
+    if (!slot || !event) return;
+    const result = cancelSlot({
+      event,
+      slot,
+      allSlots: professionalSlots,
+      cancelledAt: new Date().toISOString(),
+      reason:
+        "Esta vaga possui histórico e foi cancelada sem exclusão silenciosa.",
+    });
+    setProfessionalSlots(result.slots);
+    updateEvent(result.event);
+    addAudit("slot.cancelled", "event_professional_slots", slotId);
+    showToast("Vaga cancelada e preservada no histórico.");
+  }
+
+  function handleCancelEvent(eventId: string) {
+    const cancelledAt = new Date().toISOString();
+    setEvents((current) =>
+      current.map((event) =>
+        event.id === eventId
+          ? {
+              ...event,
+              status: "cancelled",
+              cancelledAt,
+              cancellationReason: "Cancelado pela equipe administrativa.",
+              updatedAt: cancelledAt,
+            }
+          : event,
+      ),
+    );
+    setProfessionalSlots((current) =>
+      current.map((slot) =>
+        slot.eventId === eventId
+          ? {
+              ...slot,
+              status: "cancelled",
+              cancelledAt,
+              cancellationReason: "Evento cancelado.",
+              updatedAt: cancelledAt,
+            }
+          : slot,
+      ),
+    );
+    addAudit("event.cancelled", "events", eventId);
+    showToast("Evento cancelado e vagas preservadas no histórico.");
   }
 
   function handleFinancialSubmit(values: FinancialEntryFormValues) {
     const amount = parseMoneyToCents(values.amount);
+    const selectedSlot = professionalSlots.find(
+      (slot) => slot.id === values.eventProfessionalSlotId,
+    );
+    const eventId = selectedSlot?.eventId ?? values.eventId ?? null;
+    const slotId = selectedSlot?.id ?? values.eventProfessionalSlotId ?? null;
     const signedEntry =
       values.entryType === "payment" || values.entryType === "advance"
         ? registerPayment({
             id: makeId("entry"),
             organizationId: demoOrganization.id,
             freelancerId: values.freelancerId,
-            eventId: values.eventId || null,
+            eventId,
+            eventProfessionalSlotId: slotId,
             amountCents: amount,
             entryType: values.entryType,
             description: values.description,
@@ -443,7 +649,8 @@ export function TracosWorkspace({
             id: makeId("entry"),
             organizationId: demoOrganization.id,
             freelancerId: values.freelancerId,
-            eventId: values.eventId || null,
+            eventId,
+            eventProfessionalSlotId: slotId,
             entryType: values.entryType,
             description: values.description,
             amountCents:
@@ -457,12 +664,8 @@ export function TracosWorkspace({
           };
 
     setEntries((current) => [signedEntry, ...current]);
-    addAudit(
-      values.entryType === "advance" ? "advance.created" : "payment.created",
-      "financial_entries",
-      signedEntry.id,
-    );
-    showToast("Lançamento financeiro registrado.");
+    addAudit("payment.created", "financial_entries", signedEntry.id);
+    showToast("Lançamento financeiro registrado para o profissional.");
   }
 
   function handleInviteFreelancer(values: FreelancerFormValues) {
@@ -480,29 +683,35 @@ export function TracosWorkspace({
     };
     setProfiles((current) => [...current, profile]);
     addAudit("freelancer.invited", "profiles", profile.id);
-    showToast(
-      "Freelancer cadastrado. O convite real será enviado pelo Supabase.",
-    );
+    showToast("Freelancer cadastrado.");
   }
 
   function exportCsv() {
-    const header = "data,tipo,freelancer,evento,descricao,valor";
+    const header = "data,tipo,freelancer,evento,vaga,descricao,valor";
     const lines = entries.map((entry) => {
       const profile = profiles.find((item) => item.id === entry.freelancerId);
       const event = events.find((item) => item.id === entry.eventId);
+      const slot = professionalSlots.find(
+        (item) => item.id === entry.eventProfessionalSlotId,
+      );
+      const service = slot
+        ? eventServices.find((item) => item.id === slot.eventServiceId)
+        : null;
       return [
         entry.effectiveDate,
         entry.entryType,
         profile?.fullName ?? "",
         event?.title ?? "",
+        service
+          ? `${service.serviceNameSnapshot} - Vaga ${slot?.slotNumber}`
+          : "",
         entry.description,
         (entry.amountCents / 100).toFixed(2),
       ]
         .map((value) => `"${String(value).replaceAll('"', '""')}"`)
         .join(",");
     });
-    const csv = [header, ...lines].join("\n");
-    navigator.clipboard?.writeText(csv);
+    navigator.clipboard?.writeText([header, ...lines].join("\n"));
     showToast("CSV copiado para a área de transferência.");
   }
 
@@ -510,19 +719,19 @@ export function TracosWorkspace({
     if (view === "admin-dashboard") {
       return (
         <AdminDashboard
-          adminMetrics={adminMetrics}
           auditLogs={auditLogs}
-          byFreelancerChart={byFreelancerChart}
           entries={entries}
+          eventServices={eventServices}
           events={events}
+          metrics={adminMetrics}
           monthlyChart={monthlyChart}
-          period={period}
           profiles={profiles}
-          setPeriod={setPeriod}
+          serviceChart={serviceChart}
+          slots={professionalSlots}
           statusChart={statusChart}
           summaries={freelancerSummaries}
           onCancel={handleCancelEvent}
-          onComplete={handleCompleteEvent}
+          onCompleteAll={handleCompleteAll}
         />
       );
     }
@@ -531,17 +740,12 @@ export function TracosWorkspace({
       return (
         <AdminEvents
           entries={entries}
+          eventServices={eventServices}
           events={visibleEvents}
-          freelancer={freelancerFilter}
           profiles={profiles}
-          query={query}
-          status={status}
-          onAccept={handleAcceptEvent}
+          slots={professionalSlots}
           onCancel={handleCancelEvent}
-          onComplete={handleCompleteEvent}
-          onFreelancerChange={setFreelancerFilter}
-          onQueryChange={setQuery}
-          onStatusChange={setStatus}
+          onCompleteAll={handleCompleteAll}
         />
       );
     }
@@ -552,6 +756,7 @@ export function TracosWorkspace({
           <EventEditor
             importedEvent={importedEvent}
             profiles={profiles}
+            services={demoServices}
             title={view === "admin-event-new" ? "Novo evento" : "Editar evento"}
             onOpenGoogle={() => setGoogleDialogOpen(true)}
             onSubmit={handleCreateEvent}
@@ -564,16 +769,12 @@ export function TracosWorkspace({
             onClose={() => setGoogleDialogOpen(false)}
             onConnect={() => {
               setCalendarConnected(true);
-              showToast(
-                "Conexão simulada. Em produção, abre o OAuth do Google.",
-              );
+              showToast("Conexão pronta para OAuth do Google Agenda.");
             }}
             onSelect={(event) => {
               setImportedEvent(event);
               setGoogleDialogOpen(false);
-              showToast(
-                "Evento selecionado. Complete os dados antes de salvar.",
-              );
+              showToast("Evento selecionado. Defina serviços e equipe.");
             }}
           />
         </>
@@ -586,10 +787,14 @@ export function TracosWorkspace({
           auditLogs={auditLogs}
           entries={entries}
           event={selectedEvent}
+          eventServices={eventServices}
           profiles={profiles}
-          role="admin"
-          onCancel={handleCancelEvent}
-          onComplete={handleCompleteEvent}
+          slots={professionalSlots}
+          onCancelEvent={handleCancelEvent}
+          onCancelSlot={handleCancelSlot}
+          onCompleteAll={handleCompleteAll}
+          onCompleteSlot={handleCompleteSlot}
+          onReopenSlot={handleReopenSlot}
         />
       );
     }
@@ -612,7 +817,9 @@ export function TracosWorkspace({
         <FreelancerDetail
           entries={entries}
           events={events}
+          eventServices={eventServices}
           profile={selectedFreelancer}
+          slots={professionalSlots}
           onToggleActive={() => {
             setProfiles((current) =>
               current.map((profile) =>
@@ -637,10 +844,12 @@ export function TracosWorkspace({
         <AdminFinance
           balancesByFreelancer={balancesByFreelancer}
           entries={entries}
+          eventServices={eventServices}
           events={events}
           metrics={adminMetrics}
           profiles={profiles}
           showForm={view === "admin-financial-entries"}
+          slots={professionalSlots}
           onExportCsv={exportCsv}
           onSubmit={handleFinancialSubmit}
         />
@@ -652,6 +861,7 @@ export function TracosWorkspace({
         <ReportsPage
           byFreelancerChart={byFreelancerChart}
           monthlyChart={monthlyChart}
+          serviceChart={serviceChart}
           statusChart={statusChart}
         />
       );
@@ -670,14 +880,8 @@ export function TracosWorkspace({
       return (
         <IntegrationsPage
           calendarConnected={calendarConnected}
-          onConnect={() => {
-            setCalendarConnected(true);
-            showToast("Conexão marcada como ativa no modo demonstração.");
-          }}
-          onDisconnect={() => {
-            setCalendarConnected(false);
-            showToast("Google Agenda desconectado.");
-          }}
+          onConnect={() => setCalendarConnected(true)}
+          onDisconnect={() => setCalendarConnected(false)}
         />
       );
     }
@@ -686,10 +890,12 @@ export function TracosWorkspace({
       return (
         <FreelancerDashboard
           entries={visibleEntries}
+          eventServices={eventServices}
           events={visibleEvents}
           freelancer={currentFreelancer}
           metrics={freelancerMetrics}
-          onAccept={handleAcceptEvent}
+          slots={visibleSlots}
+          onAccept={handleAcceptSlot}
         />
       );
     }
@@ -698,13 +904,12 @@ export function TracosWorkspace({
       return (
         <FreelancerEvents
           entries={visibleEntries}
-          events={
-            view === "freelancer-opportunities"
-              ? events.filter((event) => event.status === "open")
-              : visibleEvents
-          }
+          eventServices={eventServices}
+          events={visibleEvents}
           freelancer={currentFreelancer}
-          onAccept={handleAcceptEvent}
+          opportunitiesOnly={view === "freelancer-opportunities"}
+          slots={visibleSlots}
+          onAccept={handleAcceptSlot}
         />
       );
     }
@@ -713,8 +918,10 @@ export function TracosWorkspace({
       return (
         <FreelancerFinance
           entries={visibleEntries}
-          events={events}
+          eventServices={eventServices}
+          events={visibleEvents}
           freelancer={currentFreelancer}
+          slots={visibleSlots}
         />
       );
     }
@@ -722,320 +929,280 @@ export function TracosWorkspace({
     return (
       <FreelancerProfile
         freelancer={currentFreelancer}
-        onSelectFreelancer={setSelectedFreelancerId}
         profiles={activeFreelancers}
+        onSelectFreelancer={setSelectedFreelancerId}
       />
     );
   }
 
   return (
     <div className="min-h-screen bg-[var(--background)]">
-      <div className="lg:hidden">
-        <MobileNavigation
-          isOpen={mobileOpen}
+      <div className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-[var(--border)] bg-white px-4 lg:hidden">
+        <strong>Traços Freelance</strong>
+        <Button onClick={() => setMobileOpen(true)} size="icon" variant="ghost">
+          <Menu size={20} />
+        </Button>
+      </div>
+      <div className="grid lg:grid-cols-[280px_1fr]">
+        <Sidebar
           links={role === "admin" ? adminLinks : freelancerLinks}
+          mobileOpen={mobileOpen}
+          role={role}
+          user={currentUser}
           onClose={() => setMobileOpen(false)}
-          onOpen={() => setMobileOpen(true)}
-          role={role}
         />
-      </div>
-
-      <aside className="fixed inset-y-0 left-0 z-40 hidden w-72 lg:block">
-        <AppSidebar
-          currentUser={currentUser}
-          links={role === "admin" ? adminLinks : freelancerLinks}
-          role={role}
-          selectedFreelancerId={selectedFreelancerId}
-          freelancers={activeFreelancers}
-          onFreelancerChange={setSelectedFreelancerId}
-        />
-      </aside>
-
-      <main className="min-w-0 px-4 py-5 lg:ml-72 lg:px-8 lg:py-7">
-        {toast ? (
-          <div className="mb-5 flex items-center justify-between gap-3 rounded-lg border border-[var(--border)] bg-white px-4 py-3 text-sm text-[var(--text)] shadow-[var(--shadow)]">
-            <span>{toast}</span>
-            <Button onClick={() => setToast("")} size="sm" variant="ghost">
-              <X size={14} />
-            </Button>
-          </div>
-        ) : null}
-        {renderView()}
-      </main>
-    </div>
-  );
-}
-
-function AppSidebar({
-  links,
-  currentUser,
-  role,
-  freelancers,
-  selectedFreelancerId,
-  onFreelancerChange,
-}: {
-  links: typeof adminLinks;
-  currentUser: Profile;
-  role: "admin" | "freelancer";
-  freelancers: Profile[];
-  selectedFreelancerId: string;
-  onFreelancerChange: (id: string) => void;
-}) {
-  return (
-    <div className="flex h-full flex-col bg-[var(--graphite)] p-5 text-white">
-      <div className="flex items-center gap-3">
-        <div className="grid h-12 w-12 place-items-center rounded-full border border-white/10 bg-[var(--brand)] font-black text-[var(--brand-contrast)]">
-          TD
-        </div>
-        <div>
-          <strong className="block text-base">Traços Freelance</strong>
-          <span className="text-xs text-white/62">
-            Gestão de eventos e parceiros
-          </span>
-        </div>
-      </div>
-
-      <div className="mt-6 rounded-lg border border-white/10 bg-white/7 p-4">
-        <span className="text-xs font-bold uppercase text-white/55">
-          Espaço do logotipo
-        </span>
-        <div className="mt-3 grid h-20 place-items-center rounded-md border border-dashed border-white/20 text-sm text-white/55">
-          Traços Detalhados
-        </div>
-      </div>
-
-      {role === "freelancer" ? (
-        <label className="mt-5 grid gap-2 text-sm font-semibold">
-          Perfil demo
-          <select
-            className="min-h-10 rounded-md border border-white/10 bg-white/10 px-3 text-white"
-            value={selectedFreelancerId}
-            onChange={(event) => onFreelancerChange(event.target.value)}
-          >
-            {freelancers.map((profile) => (
-              <option
-                className="text-[var(--text)]"
-                key={profile.id}
-                value={profile.id}
-              >
-                {profile.fullName}
-              </option>
-            ))}
-          </select>
-        </label>
-      ) : null}
-
-      <nav className="mt-6 grid gap-1">
-        {links.map((link) => (
-          <Link
-            className="flex min-h-11 items-center gap-3 rounded-md px-3 text-sm font-semibold text-white/78 transition hover:bg-white/10 hover:text-white"
-            href={link.href}
-            key={link.href}
-          >
-            <link.icon size={18} />
-            {link.label}
-          </Link>
-        ))}
-      </nav>
-
-      <div className="mt-auto rounded-lg border border-white/10 bg-white/7 p-4">
-        <div className="flex items-center gap-3">
-          <div className="grid h-10 w-10 place-items-center rounded-full bg-white text-[var(--graphite)] text-sm font-black">
-            {initials(currentUser.fullName)}
-          </div>
-          <div className="min-w-0">
-            <strong className="block truncate text-sm">
-              {currentUser.fullName}
-            </strong>
-            <span className="block truncate text-xs text-white/58">
-              {role === "admin" ? "Administrador" : "Freelancer"}
-            </span>
-          </div>
-        </div>
-        <Link
-          className="mt-3 flex items-center gap-2 text-xs font-semibold text-white/58"
-          href="/login"
-        >
-          <LogOut size={14} />
-          Sair
-        </Link>
+        <main className="min-w-0 p-4 sm:p-6 lg:p-8">
+          <Toast message={toast} onClose={() => setToast("")} />
+          {renderView()}
+        </main>
       </div>
     </div>
   );
 }
 
-function MobileNavigation({
-  isOpen,
+function Sidebar({
   links,
+  user,
   role,
-  onOpen,
+  mobileOpen,
   onClose,
 }: {
-  isOpen: boolean;
   links: typeof adminLinks;
+  user: Profile;
   role: "admin" | "freelancer";
-  onOpen: () => void;
+  mobileOpen: boolean;
   onClose: () => void;
 }) {
   return (
     <>
-      <div className="sticky top-0 z-30 flex items-center justify-between border-b border-[var(--border)] bg-white px-4 py-3">
-        <strong>Traços Freelance</strong>
-        <Button onClick={onOpen} size="icon" variant="secondary">
-          <Menu size={18} />
-        </Button>
-      </div>
-      {isOpen ? (
-        <div className="fixed inset-0 z-50 bg-black/45">
-          <div className="h-full w-80 max-w-[85vw] bg-[var(--graphite)] p-5 text-white">
-            <div className="flex items-center justify-between">
-              <strong>{role === "admin" ? "Admin" : "Freelancer"}</strong>
-              <Button onClick={onClose} size="icon" variant="ghost">
-                <X size={18} />
-              </Button>
-            </div>
-            <nav className="mt-6 grid gap-2">
-              {links.map((link) => (
-                <Link
-                  className="flex min-h-11 items-center gap-3 rounded-md px-3 text-sm font-semibold text-white/78"
-                  href={link.href}
-                  key={link.href}
-                  onClick={onClose}
-                >
-                  <link.icon size={18} />
-                  {link.label}
-                </Link>
-              ))}
-            </nav>
-          </div>
-        </div>
+      {mobileOpen ? (
+        <button
+          aria-label="Fechar menu"
+          className="fixed inset-0 z-40 bg-black/35 lg:hidden"
+          onClick={onClose}
+        />
       ) : null}
+      <aside
+        className={cn(
+          "fixed inset-y-0 left-0 z-50 flex w-72 -translate-x-full flex-col border-r border-white/10 bg-[var(--graphite)] text-white transition lg:sticky lg:top-0 lg:h-screen lg:translate-x-0",
+          mobileOpen && "translate-x-0",
+        )}
+      >
+        <div className="flex items-center justify-between p-5">
+          <div className="flex items-center gap-3">
+            <span className="grid h-12 w-12 place-items-center rounded-md bg-[var(--brand)] font-black text-[var(--brand-contrast)]">
+              TD
+            </span>
+            <div>
+              <strong>Traços Freelance</strong>
+              <span className="block text-xs text-white/60">
+                Equipes, vagas e financeiro
+              </span>
+            </div>
+          </div>
+          <Button
+            className="text-white lg:hidden"
+            onClick={onClose}
+            size="icon"
+            variant="ghost"
+          >
+            <X size={18} />
+          </Button>
+        </div>
+        <nav className="grid gap-1 px-3">
+          {links.map((link) => {
+            const Icon = link.icon;
+            return (
+              <Link
+                className="flex items-center gap-3 rounded-md px-3 py-2 text-sm font-semibold text-white/75 hover:bg-white/10 hover:text-white"
+                href={link.href}
+                key={link.href}
+              >
+                <Icon size={18} />
+                {link.label}
+              </Link>
+            );
+          })}
+        </nav>
+        <div className="mt-auto grid gap-3 p-4">
+          <div className="flex items-center gap-3 rounded-md bg-white/8 p-3">
+            <span className="grid h-10 w-10 place-items-center rounded-md bg-white/15 text-xs font-black">
+              {initials(user.fullName)}
+            </span>
+            <div>
+              <strong className="block text-sm">{user.fullName}</strong>
+              <span className="text-xs text-white/60">
+                {role === "admin" ? "Administrador" : "Freelancer"}
+              </span>
+            </div>
+          </div>
+          <LinkButton href="/login" variant="secondary">
+            <LogOut size={16} />
+            Sair
+          </LinkButton>
+        </div>
+      </aside>
     </>
   );
 }
 
+function Toast({ message, onClose }: { message: string; onClose: () => void }) {
+  if (!message) return null;
+  return (
+    <div className="mb-5 flex items-center justify-between gap-3 rounded-lg border border-[var(--border)] bg-white p-3 text-sm shadow-sm">
+      <span>{message}</span>
+      <Button onClick={onClose} size="icon" variant="ghost">
+        <X size={16} />
+      </Button>
+    </div>
+  );
+}
+
 function AdminDashboard({
-  adminMetrics,
-  monthlyChart,
-  statusChart,
-  byFreelancerChart,
+  metrics,
   events,
+  eventServices,
+  slots,
   entries,
   profiles,
   summaries,
   auditLogs,
-  period,
-  setPeriod,
-  onComplete,
+  monthlyChart,
+  statusChart,
+  serviceChart,
+  onCompleteAll,
   onCancel,
 }: {
-  adminMetrics: ReturnType<typeof getAdminMetrics>;
-  monthlyChart: Array<Record<string, string | number>>;
-  statusChart: Array<{ name: string; value: number }>;
-  byFreelancerChart: Array<Record<string, string | number>>;
+  metrics: ReturnType<typeof getAdminMetrics>;
   events: EventRecord[];
+  eventServices: EventService[];
+  slots: EventProfessionalSlot[];
   entries: FinancialEntry[];
   profiles: Profile[];
   summaries: ReturnType<typeof getFreelancerSummaries>;
   auditLogs: AuditLog[];
-  period: string;
-  setPeriod: (value: string) => void;
-  onComplete: (eventId: string) => void;
+  monthlyChart: Array<Record<string, string | number>>;
+  statusChart: Array<{ name: string; value: number }>;
+  serviceChart: Array<{ name: string; valor: number; profissionais: number }>;
+  onCompleteAll: (eventId: string) => void;
   onCancel: (eventId: string) => void;
 }) {
-  const upcoming = events
-    .filter((event) => event.status === "assigned")
-    .slice(0, 3);
-  const open = events.filter((event) => event.status === "open");
-
   return (
     <>
       <PageHeader
         actions={
-          <>
-            <DateRangeFilter value={period} onChange={setPeriod} />
-            <LinkButton href="/admin/eventos/novo" variant="bronze">
-              <Plus size={16} />
-              Novo evento
-            </LinkButton>
-          </>
+          <LinkButton href="/admin/eventos/novo" variant="bronze">
+            <Plus size={16} />
+            Novo evento
+          </LinkButton>
         }
-        description="Visão geral operacional e financeira da Traços Detalhados."
-        eyebrow="Administrativo"
+        description="Eventos, vagas profissionais, saldos e aceite de parceiros."
+        eyebrow="Admin"
         title="Dashboard da empresa"
       />
-
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
-          description="Eventos atribuídos e futuros"
-          icon={CalendarClock}
-          title="Próximos eventos"
-          value={adminMetrics.upcomingEvents}
-        />
-        <StatCard
-          description="Disponíveis para aceite"
-          icon={ClipboardList}
-          title="Eventos em aberto"
-          tone="blue"
-          value={adminMetrics.openEvents}
-        />
-        <StatCard
-          description="Sem freelancer definido"
-          icon={Users}
-          title="Sem freelancer"
-          tone="red"
-          value={adminMetrics.eventsWithoutFreelancer}
-        />
-        <StatCard
-          description="No período selecionado"
+          description="Eventos sem pendências de equipe"
           icon={CheckCircle2}
-          title="Realizados"
+          title="Equipes completas"
           tone="green"
-          value={adminMetrics.completedThisMonth}
+          value={metrics.fullyAssignedEvents}
         />
         <StatCard
-          description="Receitas de eventos concluídos"
+          description="Eventos com vagas abertas ou pendentes"
+          icon={CalendarClock}
+          title="Equipes incompletas"
+          tone="red"
+          value={metrics.incompleteEvents}
+        />
+        <StatCard
+          description="Aguardando aceite dos parceiros"
+          icon={ClipboardList}
+          title="Vagas abertas"
+          tone="blue"
+          value={metrics.openSlots}
+        />
+        <StatCard
+          description="Próximos eventos e serviços"
+          icon={Users}
+          title="Profissionais necessários"
+          value={metrics.neededProfessionals}
+        />
+        <StatCard
+          description="Soma dos valores combinados"
+          icon={Wallet}
+          title="Valor previsto"
+          value={formatMoney(metrics.forecastValue)}
+        />
+        <StatCard
+          description="Receitas de vagas concluídas"
           icon={Banknote}
           title="Valor gerado"
-          value={formatMoney(adminMetrics.generatedThisMonth)}
-        />
-        <StatCard
-          description="Pagamentos registrados"
-          icon={CreditCard}
-          title="Valor pago"
-          tone="blue"
-          value={formatMoney(adminMetrics.paidThisMonth)}
-        />
-        <StatCard
-          description="Saldo positivo dos parceiros"
-          icon={Wallet}
-          title="Empresa deve"
           tone="green"
-          value={formatMoney(adminMetrics.totalDue)}
+          value={formatMoney(metrics.generatedThisMonth)}
         />
         <StatCard
-          description="Saldos negativos"
-          icon={ArrowLeftRight}
-          title="Adiantamentos"
-          tone="red"
-          value={formatMoney(adminMetrics.totalAdvances)}
+          description="Pagamentos e adiantamentos"
+          icon={CreditCard}
+          title="Valor recebido"
+          tone="blue"
+          value={formatMoney(metrics.paidThisMonth)}
+        />
+        <StatCard
+          description={describeBalance(metrics.netBalance, "admin")}
+          icon={Wallet}
+          title="Saldo líquido"
+          value={formatMoney(Math.abs(metrics.netBalance))}
         />
       </div>
-
+      <div className="mt-5 grid gap-5 xl:grid-cols-[1.15fr_.85fr]">
+        <Card>
+          <CardHeader>
+            <CardTitle>Próximos eventos</CardTitle>
+            <CardDescription>
+              Cada card mostra o progresso real da equipe.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-3">
+            {events
+              .filter((event) => event.status !== "completed")
+              .slice(0, 5)
+              .map((event) => (
+                <EventOverviewCard
+                  entries={entries}
+                  event={event}
+                  eventServices={eventServicesForEvent(eventServices, event.id)}
+                  key={event.id}
+                  profiles={profiles}
+                  slots={slots}
+                  onCancel={onCancel}
+                  onCompleteAll={onCompleteAll}
+                />
+              ))}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>Valor por serviço</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer height={260} width="100%">
+              <BarChart data={serviceChart}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="name" />
+                <YAxis />
+                <Tooltip
+                  formatter={(value) => formatMoney(Number(value) * 100)}
+                />
+                <Bar dataKey="valor" fill="#2f7a78" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      </div>
       <div className="mt-5 grid gap-5 xl:grid-cols-2">
-        <ChartCard title="Eventos por mês">
-          <ResponsiveContainer height={280} width="100%">
-            <BarChart data={monthlyChart}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} />
-              <XAxis dataKey="month" />
-              <YAxis />
-              <Tooltip />
-              <Bar dataKey="eventos" fill="#2f7a78" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </ChartCard>
-        <ChartCard title="Valor gerado versus pago">
-          <ResponsiveContainer height={280} width="100%">
+        <ChartCard title="Vagas e valores por mês">
+          <ResponsiveContainer height={300} width="100%">
             <AreaChart data={monthlyChart}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} />
               <XAxis dataKey="month" />
@@ -1045,56 +1212,14 @@ function AdminDashboard({
               />
               <Legend />
               <Area dataKey="gerado" fill="#2f7a78" stroke="#2f7a78" />
-              <Area dataKey="pago" fill="#2e5d91" stroke="#2e5d91" />
+              <Area dataKey="pago" fill="#496aaf" stroke="#496aaf" />
             </AreaChart>
           </ResponsiveContainer>
         </ChartCard>
-      </div>
-
-      <div className="mt-5 grid gap-5 xl:grid-cols-[1.1fr_0.9fr]">
-        <Card>
-          <CardHeader>
-            <CardTitle>Próximos eventos</CardTitle>
-            <CardDescription>
-              Eventos atribuídos aguardando realização.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-3">
-            {upcoming.map((event) => (
-              <EventCard
-                entries={entries}
-                event={event}
-                freelancer={profiles.find(
-                  (profile) => profile.id === event.assignedFreelancerId,
-                )}
-                key={event.id}
-                role="admin"
-                onCancel={onCancel}
-                onComplete={onComplete}
-              />
-            ))}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Atividade recente</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <AuditTimeline logs={auditLogs.slice(0, 5)} profiles={profiles} />
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="mt-5 grid gap-5 xl:grid-cols-2">
-        <ChartCard title="Eventos por status">
-          <ResponsiveContainer height={260} width="100%">
+        <ChartCard title="Status dos eventos">
+          <ResponsiveContainer height={300} width="100%">
             <PieChart>
-              <Pie
-                data={statusChart}
-                dataKey="value"
-                innerRadius={62}
-                outerRadius={96}
-              >
+              <Pie data={statusChart} dataKey="value" outerRadius={96}>
                 {statusChart.map((_, index) => (
                   <Cell
                     fill={chartColors[index % chartColors.length]}
@@ -1107,86 +1232,60 @@ function AdminDashboard({
             </PieChart>
           </ResponsiveContainer>
         </ChartCard>
-        <ChartCard title="Distribuição por freelancer">
-          <ResponsiveContainer height={260} width="100%">
-            <BarChart data={byFreelancerChart}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} />
-              <XAxis dataKey="name" />
-              <YAxis />
-              <Tooltip />
-              <Bar dataKey="eventos" fill="#236f59" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </ChartCard>
       </div>
-
-      <div className="mt-5 grid gap-5 xl:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Eventos aguardando freelancer</CardTitle>
-          </CardHeader>
-          <CardContent className="grid gap-3">
-            {open.length > 0 ? (
-              open.map((event) => (
-                <EventCard
-                  entries={entries}
-                  event={event}
-                  key={event.id}
-                  role="admin"
-                  onCancel={onCancel}
-                  onComplete={onComplete}
-                />
-              ))
-            ) : (
-              <EmptyState
-                description="Todos os eventos publicados já foram atribuídos."
-                title="Nenhum evento aberto"
-              />
-            )}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Freelancers com saldo</CardTitle>
-          </CardHeader>
-          <CardContent className="grid gap-3">
-            {summaries.map((summary) => (
-              <div
-                className="flex items-center justify-between gap-3 rounded-lg border border-[var(--border)] p-3"
-                key={summary.profile.id}
-              >
-                <div>
-                  <strong className="block text-sm text-[var(--text)]">
-                    {summary.profile.fullName}
-                  </strong>
-                  <span className="text-xs text-[var(--muted)]">
-                    {describeBalance(summary.balance, "admin")}
-                  </span>
-                </div>
-                <BalanceDisplay cents={summary.balance} compact />
-              </div>
-            ))}
-          </CardContent>
-        </Card>
+      <div className="mt-5 grid gap-5 xl:grid-cols-[1fr_420px]">
+        <FreelancerSummaryGrid summaries={summaries} />
+        <AuditTimeline logs={auditLogs} profiles={profiles} />
       </div>
     </>
   );
 }
 
-function AdminEvents(props: {
+function AdminEvents({
+  events,
+  slots,
+  eventServices,
+  entries,
+  profiles,
+  onCompleteAll,
+  onCancel,
+}: {
   events: EventRecord[];
+  slots: EventProfessionalSlot[];
+  eventServices: EventService[];
   entries: FinancialEntry[];
   profiles: Profile[];
-  query: string;
-  status: string;
-  freelancer: string;
-  onQueryChange: (value: string) => void;
-  onStatusChange: (value: string) => void;
-  onFreelancerChange: (value: string) => void;
-  onAccept: (eventId: string) => void;
-  onComplete: (eventId: string) => void;
+  onCompleteAll: (eventId: string) => void;
   onCancel: (eventId: string) => void;
 }) {
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [serviceFilter, setServiceFilter] = useState("all");
+  const [freelancerFilter, setFreelancerFilter] = useState("all");
+  const [query, setQuery] = useState("");
+  const filtered = events.filter((event) => {
+    const eventSlots = getEventSlots(slots, event.id);
+    const services = eventServicesForEvent(eventServices, event.id);
+    const matchesStatus =
+      statusFilter === "all" ||
+      (statusFilter === "complete" &&
+        (event.status === "fully_assigned" || event.status === "completed")) ||
+      (statusFilter === "incomplete" &&
+        (event.status === "open" || event.status === "partially_assigned")) ||
+      (statusFilter === "open_slots" &&
+        eventSlots.some((slot) => slot.status === "open"));
+    const matchesService =
+      serviceFilter === "all" ||
+      services.some((service) => service.serviceId === serviceFilter);
+    const matchesFreelancer =
+      freelancerFilter === "all" ||
+      eventSlots.some((slot) => slot.assignedFreelancerId === freelancerFilter);
+    const matchesQuery = `${event.title} ${event.locationName}`
+      .toLowerCase()
+      .includes(query.toLowerCase());
+
+    return matchesStatus && matchesService && matchesFreelancer && matchesQuery;
+  });
+
   return (
     <>
       <PageHeader
@@ -1196,23 +1295,73 @@ function AdminEvents(props: {
             Novo evento
           </LinkButton>
         }
-        description="Tabela no desktop, cards no celular, filtros por status, freelancer, serviço e busca."
+        description="Eventos com serviços, vagas abertas, equipe e financeiro."
         eyebrow="Eventos"
-        title="Agenda operacional"
+        title="Controle de eventos"
       />
-      <DataTable {...props} />
-      <div className="mt-5 grid gap-3">
-        {props.events.map((event) => (
-          <EventCard
-            entries={props.entries}
+      <Card className="mb-5">
+        <CardContent className="grid gap-3 p-4 md:grid-cols-5">
+          <Field label="Buscar">
+            <Input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+            />
+          </Field>
+          <Field label="Status">
+            <Select
+              value={statusFilter}
+              onChange={(event) => setStatusFilter(event.target.value)}
+            >
+              <option value="all">Todos</option>
+              <option value="complete">Equipe completa</option>
+              <option value="incomplete">Equipe incompleta</option>
+              <option value="open_slots">Com vagas abertas</option>
+            </Select>
+          </Field>
+          <Field label="Serviço">
+            <Select
+              value={serviceFilter}
+              onChange={(event) => setServiceFilter(event.target.value)}
+            >
+              <option value="all">Todos</option>
+              {demoServices.map((service) => (
+                <option key={service.id} value={service.id}>
+                  {service.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Freelancer">
+            <Select
+              value={freelancerFilter}
+              onChange={(event) => setFreelancerFilter(event.target.value)}
+            >
+              <option value="all">Todos</option>
+              {profiles
+                .filter((profile) => profile.role === "freelancer")
+                .map((profile) => (
+                  <option key={profile.id} value={profile.id}>
+                    {profile.fullName}
+                  </option>
+                ))}
+            </Select>
+          </Field>
+          <div className="flex items-end">
+            <Badge tone="brand">{filtered.length} eventos</Badge>
+          </div>
+        </CardContent>
+      </Card>
+      <div className="grid gap-3">
+        {filtered.map((event) => (
+          <EventOverviewCard
+            entries={entries}
             event={event}
-            freelancer={props.profiles.find(
-              (profile) => profile.id === event.assignedFreelancerId,
-            )}
+            eventServices={eventServicesForEvent(eventServices, event.id)}
             key={event.id}
-            role="admin"
-            onCancel={props.onCancel}
-            onComplete={props.onComplete}
+            profiles={profiles}
+            slots={slots}
+            onCancel={onCancel}
+            onCompleteAll={onCompleteAll}
           />
         ))}
       </div>
@@ -1223,12 +1372,14 @@ function AdminEvents(props: {
 function EventEditor({
   title,
   profiles,
+  services,
   importedEvent,
   onSubmit,
   onOpenGoogle,
 }: {
   title: string;
   profiles: Profile[];
+  services: typeof demoServices;
   importedEvent: GoogleCalendarEvent | null;
   onSubmit: (
     values: EventFormValues,
@@ -1239,13 +1390,16 @@ function EventEditor({
   return (
     <>
       <PageHeader
-        description="Formulário dividido por informações principais, freelancer, financeiro e origem."
+        description="Defina serviços, quantidade de profissionais e vagas individuais."
         eyebrow="Eventos"
         title={title}
       />
       <EventForm
-        freelancers={profiles}
+        freelancers={profiles.filter(
+          (profile) => profile.role === "freelancer" && profile.isActive,
+        )}
         importedEvent={importedEvent}
+        services={services}
         onOpenGoogle={onOpenGoogle}
         onSubmit={onSubmit}
       />
@@ -1255,129 +1409,178 @@ function EventEditor({
 
 function EventDetail({
   event,
+  eventServices,
+  slots,
   profiles,
   entries,
   auditLogs,
-  role,
-  onComplete,
-  onCancel,
+  onCompleteSlot,
+  onReopenSlot,
+  onCancelSlot,
+  onCompleteAll,
+  onCancelEvent,
 }: {
   event: EventRecord;
+  eventServices: EventService[];
+  slots: EventProfessionalSlot[];
   profiles: Profile[];
   entries: FinancialEntry[];
   auditLogs: AuditLog[];
-  role: "admin" | "freelancer";
-  onComplete: (eventId: string) => void;
-  onCancel: (eventId: string) => void;
+  onCompleteSlot: (slotId: string) => void;
+  onReopenSlot: (slotId: string) => void;
+  onCancelSlot: (slotId: string) => void;
+  onCompleteAll: (eventId: string) => void;
+  onCancelEvent: (eventId: string) => void;
 }) {
-  const freelancer = profiles.find(
-    (profile) => profile.id === event.assignedFreelancerId,
-  );
-  const eventEntries = entries.filter((entry) => entry.eventId === event.id);
+  const services = eventServicesForEvent(eventServices, event.id);
+  const eventSlots = getEventSlots(slots, event.id);
+  const summary = getEventTeamSummary(event, slots, entries);
 
   return (
     <>
       <PageHeader
         actions={
-          role === "admin" ? (
-            <>
-              <LinkButton
-                href={`/admin/eventos/${event.id}/editar`}
-                variant="secondary"
-              >
-                Editar
-              </LinkButton>
-              <Button onClick={() => onComplete(event.id)} variant="bronze">
-                Marcar como realizado
-              </Button>
-              <Button onClick={() => onCancel(event.id)} variant="danger">
-                Cancelar evento
-              </Button>
-            </>
-          ) : null
+          <>
+            <Button onClick={() => onCompleteAll(event.id)} variant="bronze">
+              Concluir todas as vagas
+            </Button>
+            <Button onClick={() => onCancelEvent(event.id)} variant="danger">
+              Cancelar evento
+            </Button>
+          </>
         }
-        description={formatDateTimeRange(event.startsAt, event.endsAt)}
+        description={`${formatDateTimeRange(event.startsAt, event.endsAt)} - ${event.locationName}`}
         eyebrow="Detalhes do evento"
         title={event.title}
       />
-      <div className="grid gap-5 xl:grid-cols-[1fr_360px]">
-        <Card>
-          <CardContent className="grid gap-4 p-5">
-            <div className="flex flex-wrap items-center gap-2">
-              <EventStatusBadge status={event.status} />
-              <Badge tone="brand">
-                {event.source === "google_calendar"
-                  ? "Google Agenda"
-                  : "Manual"}
-              </Badge>
-            </div>
-            <InfoGrid
-              rows={[
-                ["Serviço", event.serviceName],
-                ["Local", `${event.locationName} - ${event.locationAddress}`],
-                ["Freelancer", freelancer?.fullName ?? "Aberto para aceite"],
-                ["Valor combinado", formatMoney(event.freelancerFeeCents)],
-                [
-                  "Origem",
-                  event.source === "google_calendar"
-                    ? "Google Agenda"
-                    : "Manual",
-                ],
-              ]}
-            />
-            {event.googleEventLink ? (
-              <LinkButton href={event.googleEventLink} variant="secondary">
-                Abrir no Google Agenda
-              </LinkButton>
-            ) : null}
-            <div>
-              <h3 className="font-bold text-[var(--text)]">Observações</h3>
-              <p className="mt-2 text-sm text-[var(--muted)]">
-                {event.description}
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Histórico financeiro</CardTitle>
-          </CardHeader>
-          <CardContent className="grid gap-3">
-            {eventEntries.map((entry) => (
-              <div
-                className="flex justify-between gap-3 rounded-md border border-[var(--border)] p-3 text-sm"
-                key={entry.id}
-              >
-                <div>
-                  <strong>{translateEntryType(entry.entryType)}</strong>
-                  <span className="block text-xs text-[var(--muted)]">
-                    {entry.description} - {formatShortDate(entry.createdAt)}
-                  </span>
-                </div>
-                <strong>{formatMoney(entry.amountCents)}</strong>
-              </div>
-            ))}
-            {eventEntries.length === 0 ? (
-              <EmptyState
-                description="Os pagamentos e receitas aparecerão aqui."
-                title="Sem lançamentos"
-              />
-            ) : null}
-          </CardContent>
-        </Card>
-      </div>
-      <Card className="mt-5">
-        <CardHeader>
-          <CardTitle>Histórico de alterações</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <AuditTimeline
-            logs={auditLogs.filter((log) => log.entityId === event.id)}
+      <EventTeamSummary {...summary} />
+      <section className="mt-5 grid gap-4">
+        <div>
+          <h2 className="text-xl font-black text-[var(--text)]">
+            Equipe e serviços
+          </h2>
+          <p className="text-sm text-[var(--muted)]">
+            Vagas agrupadas por serviço, com valor e saldo individual.
+          </p>
+        </div>
+        {services.map((service) => (
+          <ServiceGroupCard
+            entries={entries}
+            key={service.id}
             profiles={profiles}
+            service={service}
+            showActions
+            slots={eventSlots.filter(
+              (slot) => slot.eventServiceId === service.id,
+            )}
+            onCancel={onCancelSlot}
+            onComplete={onCompleteSlot}
+            onReopen={onReopenSlot}
           />
-        </CardContent>
-      </Card>
+        ))}
+      </section>
+      <div className="mt-5">
+        <LedgerCard
+          entries={entries.filter((entry) => entry.eventId === event.id)}
+          eventServices={eventServices}
+          events={[event]}
+          profiles={profiles}
+          slots={slots}
+        />
+      </div>
+      <div className="mt-5">
+        <AuditTimeline
+          logs={auditLogs
+            .filter((log) => log.entityId === event.id)
+            .slice(0, 6)}
+          profiles={profiles}
+        />
+      </div>
     </>
+  );
+}
+
+function EventOverviewCard({
+  event,
+  eventServices,
+  slots,
+  entries,
+  profiles,
+  onCompleteAll,
+  onCancel,
+}: {
+  event: EventRecord;
+  eventServices: EventService[];
+  slots: EventProfessionalSlot[];
+  entries: FinancialEntry[];
+  profiles: Profile[];
+  onCompleteAll: (eventId: string) => void;
+  onCancel: (eventId: string) => void;
+}) {
+  const eventSlots = getActiveEventSlots(slots, event.id);
+  const summary = getEventTeamSummary(event, slots, entries);
+  const serviceNames = eventServices.map(
+    (service) => service.serviceNameSnapshot,
+  );
+  const assignedNames = eventSlots
+    .map((slot) =>
+      profiles.find((profile) => profile.id === slot.assignedFreelancerId),
+    )
+    .filter(Boolean)
+    .map((profile) => profile!.fullName.split(" ")[0]);
+
+  return (
+    <Card>
+      <CardContent className="grid gap-4 p-4 lg:grid-cols-[1fr_340px_auto] lg:items-center">
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <EventStatusBadge status={event.status} />
+            <span className="text-xs font-semibold text-[var(--muted)]">
+              {formatDateTimeRange(event.startsAt, event.endsAt)}
+            </span>
+          </div>
+          <Link
+            className="mt-2 block text-lg font-black text-[var(--text)] hover:text-[var(--brand)]"
+            href={`/admin/eventos/${event.id}`}
+          >
+            {event.title}
+          </Link>
+          <p className="mt-1 text-sm text-[var(--muted)]">
+            {event.locationName}
+          </p>
+          <p className="mt-2 text-sm">
+            <strong>Serviços:</strong> {serviceNames.join(", ")}
+          </p>
+          {assignedNames.length > 0 ? (
+            <p className="mt-1 text-sm text-[var(--muted)]">
+              Escalados: {assignedNames.join(", ")}
+            </p>
+          ) : null}
+        </div>
+        <EventTeamProgress
+          assigned={summary.assignedSlots}
+          open={summary.openSlots}
+          total={summary.totalSlots}
+        />
+        <div className="flex flex-wrap gap-2 lg:justify-end">
+          <Badge tone="brand">{formatMoney(summary.totalAgreedFee)}</Badge>
+          <Button
+            onClick={() => onCompleteAll(event.id)}
+            size="sm"
+            variant="bronze"
+          >
+            Concluir
+          </Button>
+          <Button
+            onClick={() => onCancel(event.id)}
+            size="sm"
+            variant="secondary"
+          >
+            Cancelar
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -1397,61 +1600,63 @@ function FreelancersPage({
             Novo freelancer
           </LinkButton>
         }
-        description="Cadastro, situação e resumo financeiro dos parceiros."
-        eyebrow="Parceiros"
-        title="Freelancers"
+        description="Parceiros, trabalhos realizados, valores gerados e saldos."
+        eyebrow="Freelancers"
+        title="Parceiros"
       />
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {summaries.map((summary) => (
-          <Card key={summary.profile.id}>
-            <CardContent className="p-5">
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="grid h-11 w-11 place-items-center rounded-full bg-[var(--graphite)] text-white font-black">
-                    {initials(summary.profile.fullName)}
-                  </div>
-                  <div>
-                    <strong>{summary.profile.fullName}</strong>
-                    <span className="block text-xs text-[var(--muted)]">
-                      {summary.profile.phone}
-                    </span>
-                  </div>
-                </div>
-                <Badge tone={summary.profile.isActive ? "success" : "danger"}>
-                  {summary.profile.isActive ? "Ativo" : "Inativo"}
-                </Badge>
-              </div>
-              <InfoGrid
-                className="mt-4"
-                rows={[
-                  ["E-mail", summary.profile.email],
-                  ["Próximo evento", summary.nextEvent?.title ?? "Sem agenda"],
-                  ["Eventos realizados", String(summary.completedEvents)],
-                  ["Total gerado", formatMoney(summary.totalGenerated)],
-                  ["Total pago", formatMoney(summary.totalPaid)],
-                ]}
-              />
-              <BalanceDisplay cents={summary.balance} />
-              <div className="mt-4 flex gap-2">
-                <LinkButton
-                  href={`/admin/freelancers/${summary.profile.id}`}
-                  onClick={() => onSelectFreelancer(summary.profile.id)}
-                  variant="secondary"
-                >
-                  Ver detalhes
-                </LinkButton>
-                <LinkButton
-                  href="/admin/financeiro/lancamentos"
-                  variant="bronze"
-                >
-                  Registrar pagamento
-                </LinkButton>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+      <FreelancerSummaryGrid
+        summaries={summaries}
+        onSelectFreelancer={onSelectFreelancer}
+      />
     </>
+  );
+}
+
+function FreelancerSummaryGrid({
+  summaries,
+  onSelectFreelancer,
+}: {
+  summaries: ReturnType<typeof getFreelancerSummaries>;
+  onSelectFreelancer?: (id: string) => void;
+}) {
+  return (
+    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+      {summaries.map((summary) => (
+        <Card key={summary.profile.id}>
+          <CardContent className="grid gap-3 p-4">
+            <div className="flex items-center gap-3">
+              <span className="grid h-11 w-11 place-items-center rounded-md bg-[var(--graphite)] text-sm font-black text-white">
+                {initials(summary.profile.fullName)}
+              </span>
+              <div>
+                <strong>{summary.profile.fullName}</strong>
+                <span className="block text-xs text-[var(--muted)]">
+                  {summary.profile.email}
+                </span>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2 text-sm">
+              <MetricBox label="Trabalhos" value={summary.completedSlots} />
+              <MetricBox label="Saldo" value={formatMoney(summary.balance)} />
+            </div>
+            {summary.nextEvent ? (
+              <p className="text-sm text-[var(--muted)]">
+                Próximo: {summary.nextEvent.title}
+              </p>
+            ) : null}
+            {onSelectFreelancer ? (
+              <LinkButton
+                href={`/admin/freelancers/${summary.profile.id}`}
+                onClick={() => onSelectFreelancer(summary.profile.id)}
+                variant="secondary"
+              >
+                Ver perfil
+              </LinkButton>
+            ) : null}
+          </CardContent>
+        </Card>
+      ))}
+    </div>
   );
 }
 
@@ -1461,9 +1666,9 @@ function FreelancerNew({
   onSubmit: (values: FreelancerFormValues) => void;
 }) {
   const [values, setValues] = useState<FreelancerFormValues>({
-    fullName: "Novo Parceiro",
-    email: "parceiro@exemplo.com",
-    phone: "(65) 98888-0000",
+    fullName: "",
+    email: "",
+    phone: "",
     pixKey: "",
     notes: "",
     isActive: true,
@@ -1472,13 +1677,13 @@ function FreelancerNew({
   return (
     <>
       <PageHeader
-        description="O convite real deve ser enviado pelo servidor com a operação administrativa do Supabase."
+        description="Cadastre um parceiro para designação de vagas."
         eyebrow="Freelancers"
         title="Novo freelancer"
       />
       <Card>
         <CardContent className="grid gap-4 p-5">
-          <Field label="Nome">
+          <Field label="Nome completo">
             <Input
               value={values.fullName}
               onChange={(event) =>
@@ -1504,17 +1709,17 @@ function FreelancerNew({
               />
             </Field>
           </div>
-          <Field label="Chave Pix">
+          <Field label="Pix">
             <Input
-              value={values.pixKey}
+              value={values.pixKey ?? ""}
               onChange={(event) =>
                 setValues({ ...values, pixKey: event.target.value })
               }
             />
           </Field>
-          <Field label="Observações internas">
+          <Field label="Notas">
             <Textarea
-              value={values.notes}
+              value={values.notes ?? ""}
               onChange={(event) =>
                 setValues({ ...values, notes: event.target.value })
               }
@@ -1523,10 +1728,10 @@ function FreelancerNew({
           <label className="flex items-center gap-2 text-sm font-semibold">
             <input
               checked={values.isActive}
+              type="checkbox"
               onChange={(event) =>
                 setValues({ ...values, isActive: event.target.checked })
               }
-              type="checkbox"
             />
             Freelancer ativo
           </label>
@@ -1543,16 +1748,20 @@ function FreelancerNew({
 function FreelancerDetail({
   profile,
   events,
+  slots,
+  eventServices,
   entries,
   onToggleActive,
 }: {
   profile: Profile;
   events: EventRecord[];
+  slots: EventProfessionalSlot[];
+  eventServices: EventService[];
   entries: FinancialEntry[];
   onToggleActive: () => void;
 }) {
-  const freelancerEvents = events.filter(
-    (event) => event.assignedFreelancerId === profile.id,
+  const freelancerSlots = slots.filter(
+    (slot) => slot.assignedFreelancerId === profile.id,
   );
   const freelancerEntries = entries.filter(
     (entry) => entry.freelancerId === profile.id,
@@ -1595,25 +1804,37 @@ function FreelancerDetail({
         </Card>
         <Card>
           <CardHeader>
-            <CardTitle>Histórico de eventos</CardTitle>
+            <CardTitle>Trabalhos e funções</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-3">
-            {freelancerEvents.map((event) => (
-              <EventCard
-                entries={entries}
-                event={event}
-                key={event.id}
-                role="admin"
-              />
-            ))}
+            {freelancerSlots.map((slot) => {
+              const event = events.find((item) => item.id === slot.eventId);
+              const service = eventServices.find(
+                (item) => item.id === slot.eventServiceId,
+              );
+              return (
+                <div
+                  className="rounded-lg border border-[var(--border)] p-3 text-sm"
+                  key={slot.id}
+                >
+                  <strong>{event?.title}</strong>
+                  <span className="block text-[var(--muted)]">
+                    Função: {service?.serviceNameSnapshot} -{" "}
+                    {formatMoney(slot.agreedFeeCents)}
+                  </span>
+                </div>
+              );
+            })}
           </CardContent>
         </Card>
       </div>
       <LedgerCard
         className="mt-5"
         entries={freelancerEntries}
+        eventServices={eventServices}
         events={events}
         profiles={[profile]}
+        slots={slots}
       />
     </>
   );
@@ -1623,6 +1844,8 @@ function AdminFinance({
   metrics,
   profiles,
   events,
+  eventServices,
+  slots,
   entries,
   balancesByFreelancer,
   showForm,
@@ -1632,6 +1855,8 @@ function AdminFinance({
   metrics: ReturnType<typeof getAdminMetrics>;
   profiles: Profile[];
   events: EventRecord[];
+  eventServices: EventService[];
+  slots: EventProfessionalSlot[];
   entries: FinancialEntry[];
   balancesByFreelancer: Record<string, number>;
   showForm: boolean;
@@ -1656,7 +1881,7 @@ function AdminFinance({
             </LinkButton>
           </>
         }
-        description="Livro-caixa com pagamentos, adiantamentos, ajustes, estornos e saldos."
+        description="Pagamentos gerais, por evento ou por vaga profissional."
         eyebrow="Financeiro"
         title="Controle financeiro"
       />
@@ -1673,20 +1898,29 @@ function AdminFinance({
             <CardHeader>
               <CardTitle>Novo lançamento</CardTitle>
               <CardDescription>
-                Confira a prévia do saldo antes de confirmar.
+                Se o evento tiver mais de um profissional, selecione o
+                freelancer e a vaga específica.
               </CardDescription>
             </CardHeader>
             <CardContent>
               <FinancialEntryForm
                 balancesByFreelancer={balancesByFreelancer}
+                eventServices={eventServices}
                 events={events}
                 freelancers={freelancers}
+                slots={slots}
                 onSubmit={onSubmit}
               />
             </CardContent>
           </Card>
         ) : null}
-        <LedgerCard entries={entries} events={events} profiles={profiles} />
+        <LedgerCard
+          entries={entries}
+          eventServices={eventServices}
+          events={events}
+          profiles={profiles}
+          slots={slots}
+        />
       </div>
     </>
   );
@@ -1696,15 +1930,17 @@ function ReportsPage({
   monthlyChart,
   statusChart,
   byFreelancerChart,
+  serviceChart,
 }: {
   monthlyChart: Array<Record<string, string | number>>;
   statusChart: Array<{ name: string; value: number }>;
   byFreelancerChart: Array<Record<string, string | number>>;
+  serviceChart: Array<{ name: string; valor: number; profissionais: number }>;
 }) {
   return (
     <>
       <PageHeader
-        description="Relatórios operacionais e financeiros para leitura rápida."
+        description="Relatórios por evento, serviço, vaga e freelancer."
         eyebrow="Relatórios"
         title="Análises da operação"
       />
@@ -1736,29 +1972,27 @@ function ReportsPage({
             </PieChart>
           </ResponsiveContainer>
         </ChartCard>
-        <ChartCard title="Gerado versus pago">
+        <ChartCard title="Valor por serviço">
           <ResponsiveContainer height={300} width="100%">
-            <AreaChart data={monthlyChart}>
+            <BarChart data={serviceChart}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} />
-              <XAxis dataKey="month" />
+              <XAxis dataKey="name" />
               <YAxis />
               <Tooltip
                 formatter={(value) => formatMoney(Number(value) * 100)}
               />
-              <Legend />
-              <Area dataKey="gerado" fill="#2f7a78" stroke="#2f7a78" />
-              <Area dataKey="pago" fill="#2e5d91" stroke="#2e5d91" />
-            </AreaChart>
+              <Bar dataKey="valor" fill="#496aaf" radius={[4, 4, 0, 0]} />
+            </BarChart>
           </ResponsiveContainer>
         </ChartCard>
-        <ChartCard title="Distribuição por freelancer">
+        <ChartCard title="Trabalhos por freelancer">
           <ResponsiveContainer height={300} width="100%">
             <BarChart data={byFreelancerChart}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} />
               <XAxis dataKey="name" />
               <YAxis />
               <Tooltip />
-              <Bar dataKey="eventos" fill="#236f59" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="trabalhos" fill="#236f59" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </ChartCard>
@@ -1796,6 +2030,27 @@ function SettingsPage({
             <Field label="Timezone">
               <Input value={demoOrganization.timezone} readOnly />
             </Field>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>Catálogo de serviços</CardTitle>
+          </CardHeader>
+          <CardContent className="grid gap-3">
+            {demoServices.map((service) => (
+              <div
+                className="rounded-lg border border-[var(--border)] p-3 text-sm"
+                key={service.id}
+              >
+                <strong>{service.name}</strong>
+                <span className="block text-[var(--muted)]">
+                  Padrão: {service.defaultProfessionals} profissional(is) -{" "}
+                  {service.defaultFeeCents
+                    ? formatMoney(service.defaultFeeCents)
+                    : "sem valor padrão"}
+                </span>
+              </div>
+            ))}
           </CardContent>
         </Card>
         <Card>
@@ -1849,8 +2104,8 @@ function IntegrationsPage({
                   Google Agenda
                 </strong>
                 <p className="text-sm text-[var(--muted)]">
-                  Escopo somente leitura, OAuth 2.0 e tokens criptografados no
-                  servidor.
+                  Importa nome, descrição, data, horário, local, endereço e
+                  link. Serviços, equipe, valores e aceite são definidos depois.
                 </p>
               </div>
             </div>
@@ -1859,7 +2114,7 @@ function IntegrationsPage({
                 {calendarConnected ? "Conectado" : "Não conectado"}
               </Badge>
               <Badge tone="brand">calendar.readonly</Badge>
-              <Badge tone="neutral">Authorization Code Flow</Badge>
+              <Badge tone="neutral">OAuth 2.0</Badge>
             </div>
           </div>
           <div className="flex flex-wrap gap-2 md:justify-end">
@@ -1884,24 +2139,28 @@ function FreelancerDashboard({
   freelancer,
   metrics,
   events,
+  slots,
+  eventServices,
   entries,
   onAccept,
 }: {
   freelancer: Profile;
   metrics: ReturnType<typeof getFreelancerMetrics>;
   events: EventRecord[];
+  slots: EventProfessionalSlot[];
+  eventServices: EventService[];
   entries: FinancialEntry[];
-  onAccept: (eventId: string) => void;
+  onAccept: (slotId: string) => void;
 }) {
-  const assigned = events.filter(
-    (event) => event.assignedFreelancerId === freelancer.id,
+  const assignedSlots = slots.filter(
+    (slot) => slot.assignedFreelancerId === freelancer.id,
   );
-  const open = events.filter((event) => event.status === "open");
+  const openSlots = getOpenSlotsForFreelancer(slots, freelancer.id);
 
   return (
     <>
       <PageHeader
-        description="Acesso restrito ao próprio calendário e extrato."
+        description="Eventos, trabalhos, oportunidades e extrato individual."
         eyebrow="Freelancer"
         title={`Olá, ${freelancer.fullName.split(" ")[0]}`}
       />
@@ -1913,10 +2172,16 @@ function FreelancerDashboard({
           value={metrics.upcomingJobs}
         />
         <StatCard
-          description="Eventos concluídos"
+          description="Eventos com trabalho concluído"
           icon={CheckCircle2}
-          title="Realizados no mês"
+          title="Eventos realizados"
           tone="green"
+          value={metrics.completedEvents}
+        />
+        <StatCard
+          description="Vagas profissionais concluídas"
+          icon={ClipboardList}
+          title="Trabalhos realizados"
           value={metrics.completedThisMonth}
         />
         <StatCard
@@ -1939,54 +2204,46 @@ function FreelancerDashboard({
           tone={metrics.balance < 0 ? "red" : "green"}
           value={formatMoney(Math.abs(metrics.balance))}
         />
-        <StatCard
-          description="Disponíveis para aceite"
-          icon={ClipboardList}
-          title="Trabalhos abertos"
-          tone="blue"
-          value={metrics.availableJobs}
-        />
       </div>
       <div className="mt-5 grid gap-5 xl:grid-cols-2">
+        <FreelancerSlotList
+          entries={entries}
+          eventServices={eventServices}
+          events={events}
+          slots={assignedSlots}
+          title="Próximos trabalhos"
+        />
         <Card>
           <CardHeader>
-            <CardTitle>Próximos eventos</CardTitle>
+            <CardTitle>Oportunidades disponíveis</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-3">
-            {assigned.map((event) => (
-              <EventCard
-                entries={entries}
-                event={event}
-                freelancer={freelancer}
-                key={event.id}
-                role="freelancer"
+            {openSlots.length > 0 ? (
+              openSlots.map((slot) => {
+                const event = events.find((item) => item.id === slot.eventId);
+                const service = eventServices.find(
+                  (item) => item.id === slot.eventServiceId,
+                );
+                if (!event || !service) return null;
+                return (
+                  <OpenSlotCard
+                    event={event}
+                    key={slot.id}
+                    service={service}
+                    slot={slot}
+                    onAccept={onAccept}
+                  />
+                );
+              })
+            ) : (
+              <EmptyState
+                description="Novas vagas abertas aparecerão aqui."
+                title="Sem oportunidades"
               />
-            ))}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Trabalhos disponíveis</CardTitle>
-          </CardHeader>
-          <CardContent className="grid gap-3">
-            {open.map((event) => (
-              <EventCard
-                entries={entries}
-                event={event}
-                key={event.id}
-                role="freelancer"
-                onAccept={onAccept}
-              />
-            ))}
+            )}
           </CardContent>
         </Card>
       </div>
-      <LedgerCard
-        className="mt-5"
-        entries={entries}
-        events={events}
-        profiles={[freelancer]}
-      />
     </>
   );
 }
@@ -1994,32 +2251,69 @@ function FreelancerDashboard({
 function FreelancerEvents({
   freelancer,
   events,
+  slots,
+  eventServices,
   entries,
+  opportunitiesOnly,
   onAccept,
 }: {
   freelancer: Profile;
   events: EventRecord[];
+  slots: EventProfessionalSlot[];
+  eventServices: EventService[];
   entries: FinancialEntry[];
-  onAccept: (eventId: string) => void;
+  opportunitiesOnly: boolean;
+  onAccept: (slotId: string) => void;
 }) {
+  const relevantSlots = opportunitiesOnly
+    ? getOpenSlotsForFreelancer(slots, freelancer.id)
+    : slots.filter(
+        (slot) =>
+          slot.assignedFreelancerId === freelancer.id || slot.status === "open",
+      );
+
   return (
     <>
       <PageHeader
-        description="Cards otimizados para celular com valores próprios e local do evento."
-        eyebrow="Minha agenda"
+        description="Cada card representa uma vaga profissional, não o evento inteiro."
+        eyebrow={opportunitiesOnly ? "Oportunidades" : "Minha agenda"}
         title="Eventos e oportunidades"
       />
       <div className="grid gap-3">
-        {events.map((event) => (
-          <EventCard
-            entries={entries}
-            event={event}
-            freelancer={event.assignedFreelancerId ? freelancer : undefined}
-            key={event.id}
-            role="freelancer"
-            onAccept={onAccept}
+        {relevantSlots.length > 0 ? (
+          relevantSlots.map((slot) => {
+            const event = events.find((item) => item.id === slot.eventId);
+            const service = eventServices.find(
+              (item) => item.id === slot.eventServiceId,
+            );
+            if (!event || !service) return null;
+            if (slot.status === "open" && !slot.assignedFreelancerId) {
+              return (
+                <OpenSlotCard
+                  event={event}
+                  key={slot.id}
+                  service={service}
+                  slot={slot}
+                  onAccept={onAccept}
+                />
+              );
+            }
+            return (
+              <FreelancerAssignedSlotCard
+                entries={entries}
+                event={event}
+                key={slot.id}
+                service={service}
+                slot={slot}
+              />
+            );
+          })
+        ) : (
+          <EmptyState
+            description="Nenhuma vaga encontrada para este filtro."
+            title="Sem trabalhos"
           />
-        ))}
+        )}
       </div>
     </>
   );
@@ -2028,17 +2322,21 @@ function FreelancerEvents({
 function FreelancerFinance({
   freelancer,
   events,
+  slots,
+  eventServices,
   entries,
 }: {
   freelancer: Profile;
   events: EventRecord[];
+  slots: EventProfessionalSlot[];
+  eventServices: EventService[];
   entries: FinancialEntry[];
 }) {
   const balance = getFreelancerBalance(entries, freelancer.id);
   return (
     <>
       <PageHeader
-        description="Extrato financeiro individual, sem dados de outros parceiros."
+        description="Extrato individual por vaga, evento e pagamento."
         eyebrow="Meu financeiro"
         title="Extrato e saldo"
       />
@@ -2046,8 +2344,10 @@ function FreelancerFinance({
       <LedgerCard
         className="mt-5"
         entries={entries}
+        eventServices={eventServices}
         events={events}
         profiles={[freelancer]}
+        slots={slots}
       />
     </>
   );
@@ -2071,7 +2371,7 @@ function FreelancerProfile({
       />
       <Card>
         <CardContent className="grid gap-4 p-5">
-          <Field label="Selecionar perfil demo">
+          <Field label="Selecionar perfil">
             <Select
               value={freelancer.id}
               onChange={(event) => onSelectFreelancer(event.target.value)}
@@ -2097,15 +2397,109 @@ function FreelancerProfile({
   );
 }
 
+function FreelancerSlotList({
+  title,
+  slots,
+  events,
+  eventServices,
+  entries,
+}: {
+  title: string;
+  slots: EventProfessionalSlot[];
+  events: EventRecord[];
+  eventServices: EventService[];
+  entries: FinancialEntry[];
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{title}</CardTitle>
+      </CardHeader>
+      <CardContent className="grid gap-3">
+        {slots.length > 0 ? (
+          slots.map((slot) => {
+            const event = events.find((item) => item.id === slot.eventId);
+            const service = eventServices.find(
+              (item) => item.id === slot.eventServiceId,
+            );
+            if (!event || !service) return null;
+            return (
+              <FreelancerAssignedSlotCard
+                entries={entries}
+                event={event}
+                key={slot.id}
+                service={service}
+                slot={slot}
+              />
+            );
+          })
+        ) : (
+          <EmptyState
+            description="Os trabalhos confirmados aparecerão aqui."
+            title="Sem trabalhos"
+          />
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function FreelancerAssignedSlotCard({
+  event,
+  service,
+  slot,
+  entries,
+}: {
+  event: EventRecord;
+  service: EventService;
+  slot: EventProfessionalSlot;
+  entries: FinancialEntry[];
+}) {
+  const summary = getSlotFinancialSummary(slot, entries);
+  return (
+    <Card>
+      <CardContent className="grid gap-3 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <strong>{event.title}</strong>
+            <span className="block text-sm text-[var(--muted)]">
+              Função: {service.serviceNameSnapshot} - Vaga {slot.slotNumber}
+            </span>
+          </div>
+          <Badge tone="brand">{formatMoney(slot.agreedFeeCents)}</Badge>
+        </div>
+        <div className="grid gap-1 text-sm text-[var(--muted)]">
+          <span>{formatDateTimeRange(event.startsAt, event.endsAt)}</span>
+          <span>{event.locationName}</span>
+        </div>
+        <div className="grid gap-2 rounded-md bg-[var(--surface-muted)] p-3 text-sm">
+          <div className="flex justify-between gap-3">
+            <span>Pago</span>
+            <strong>{formatMoney(summary.paid)}</strong>
+          </div>
+          <div className="flex justify-between gap-3">
+            <span>Saldo</span>
+            <strong>{formatMoney(summary.balance)}</strong>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function LedgerCard({
   entries,
   events,
   profiles,
+  slots,
+  eventServices,
   className,
 }: {
   entries: FinancialEntry[];
   events: EventRecord[];
   profiles: Profile[];
+  slots: EventProfessionalSlot[];
+  eventServices: EventService[];
   className?: string;
 }) {
   return (
@@ -2123,6 +2517,12 @@ function LedgerCard({
             const profile = profiles.find(
               (item) => item.id === entry.freelancerId,
             );
+            const slot = slots.find(
+              (item) => item.id === entry.eventProfessionalSlotId,
+            );
+            const service = slot
+              ? eventServices.find((item) => item.id === slot.eventServiceId)
+              : null;
             return (
               <div
                 className="grid gap-3 rounded-lg border border-[var(--border)] p-3 md:grid-cols-[1fr_auto]"
@@ -2145,6 +2545,8 @@ function LedgerCard({
                   <span className="text-xs text-[var(--muted)]">
                     {profile?.fullName ?? "Freelancer"}{" "}
                     {event ? `- ${event.title}` : ""}
+                    {service ? ` - ${service.serviceNameSnapshot}` : ""}
+                    {slot ? ` - Vaga ${slot.slotNumber}` : ""}
                   </span>
                 </div>
                 <strong
@@ -2188,6 +2590,15 @@ function ChartCard({
   );
 }
 
+function MetricBox({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="rounded-md bg-[var(--surface-muted)] p-3">
+      <strong className="block text-sm">{value}</strong>
+      <span className="text-xs text-[var(--muted)]">{label}</span>
+    </div>
+  );
+}
+
 function InfoGrid({
   rows,
   className,
@@ -2212,11 +2623,33 @@ function InfoGrid({
   );
 }
 
+function eventServicesForEvent(services: EventService[], eventId: string) {
+  return services.filter((service) => service.eventId === eventId);
+}
+
+function getOpenSlotsForFreelancer(
+  slots: EventProfessionalSlot[],
+  freelancerId: string,
+) {
+  return slots.filter((slot) => {
+    if (slot.status !== "open" || slot.assignedFreelancerId !== null)
+      return false;
+    return !slots.some(
+      (current) =>
+        current.eventId === slot.eventId &&
+        current.status !== "cancelled" &&
+        current.assignedFreelancerId === freelancerId,
+    );
+  });
+}
+
 function translateStatus(status: EventRecord["status"]) {
   const labels: Record<EventRecord["status"], string> = {
     draft: "Rascunho",
     open: "Aberto",
     assigned: "Designado",
+    partially_assigned: "Equipe parcial",
+    fully_assigned: "Equipe completa",
     completed: "Realizado",
     cancelled: "Cancelado",
   };
@@ -2225,7 +2658,7 @@ function translateStatus(status: EventRecord["status"]) {
 
 function translateEntryType(type: FinancialEntry["entryType"]) {
   const labels: Record<FinancialEntry["entryType"], string> = {
-    event_earning: "Receita do evento",
+    event_earning: "Receita da vaga",
     payment: "Pagamento",
     advance: "Adiantamento",
     positive_adjustment: "Ajuste positivo",

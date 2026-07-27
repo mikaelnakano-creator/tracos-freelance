@@ -1,8 +1,18 @@
 # Traços Freelance
 
-Aplicação web para a Traços Detalhados controlar eventos fotográficos,
-freelancers parceiros, aceite de trabalhos abertos, pagamentos parciais,
-adiantamentos, saldos e importação manual do Google Agenda.
+Sistema web da Traços Detalhados para controlar eventos, equipes de freelancers,
+vagas abertas, aceite pelos parceiros, conclusão dos serviços e financeiro por
+profissional.
+
+Cada evento pode ter de 1 a 5 profissionais. A empresa monta a equipe por
+serviço, por exemplo:
+
+- Fotografia: 1 profissional
+- Filmagem: 1 profissional
+- Selfie impressa: 2 profissionais
+
+Cada vaga tem seu próprio freelancer, valor combinado, status, aceite,
+conclusão, pagamentos e saldo.
 
 ## Stack
 
@@ -12,20 +22,13 @@ adiantamentos, saldos e importação manual do Google Agenda.
 - Tailwind CSS
 - Componentes locais no padrão shadcn/ui
 - Lucide Icons
-- Supabase Auth, PostgreSQL e Row Level Security
-- React Hook Form + Zod
+- Supabase Auth, PostgreSQL, RPCs e Row Level Security
+- Zod
 - date-fns com pt-BR
 - Recharts
 - Vitest
 - Playwright
-- Vercel
-
-## Pré-requisitos
-
-- Node.js 22+
-- Conta Supabase
-- Conta Google Cloud
-- Conta Vercel
+- Deploy compatível com Vercel e ChatGPT Sites
 
 ## Instalação local
 
@@ -52,100 +55,134 @@ GOOGLE_REDIRECT_URI=http://localhost:3000/api/google/callback
 GOOGLE_TOKEN_ENCRYPTION_KEY=
 ```
 
-`GOOGLE_TOKEN_ENCRYPTION_KEY` deve ser base64 com 32 bytes. Gere localmente com:
+`GOOGLE_TOKEN_ENCRYPTION_KEY` deve ser base64 com 32 bytes:
 
 ```bash
 node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
 ```
 
-## Configuração do Supabase
+## Modelo do banco
 
-1. Crie um projeto no Supabase.
-2. Copie `NEXT_PUBLIC_SUPABASE_URL` e `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`.
-3. Copie a `SUPABASE_SERVICE_ROLE_KEY` apenas para o servidor/Vercel.
-4. Execute a migration `supabase/migrations/0001_initial_schema.sql`.
-5. Ative as URLs permitidas no Supabase Auth:
-   - `http://localhost:3000`
-   - URL final da Vercel
-6. Configure e-mails de convite/recuperação no painel de Auth.
+As migrations ficam em `supabase/migrations/`.
 
-Nunca exponha a Service Role Key no navegador.
+- `0001_initial_schema.sql`: base inicial de organização, perfis, eventos,
+  financeiro, Google e auditoria.
+- `0002_event_status_values.sql`: adiciona os status `partially_assigned` e
+  `fully_assigned`.
+- `0003_event_team_slots.sql`: adiciona serviços, vagas por profissional,
+  aceite atômico por vaga, financeiro por vaga, novas views e políticas RLS.
 
-## Migrations e RLS
+Tabelas principais:
 
-A migration cria:
+- `services`: catálogo de serviços da empresa.
+- `event_services`: serviços escolhidos para cada evento e quantidade exigida.
+- `event_professional_slots`: vagas individuais de cada serviço.
+- `financial_entries`: lançamentos financeiros, agora com
+  `event_professional_slot_id`.
+- `event_acceptances`: histórico de aceite, também ligado à vaga.
 
-- `organizations`
-- `profiles`
-- `events`
-- `event_acceptances`
-- `financial_entries`
-- `google_connections`
-- `audit_logs`
-- índices
-- constraints de duplicidade do Google Agenda
-- views financeiras
-- RPC `accept_open_event(event_id uuid)`
-- RPC `complete_event(event_id uuid)`
-- políticas RLS por organização e perfil
+Status de evento:
 
-Freelancers só veem os próprios eventos, eventos abertos da organização e o
-próprio extrato. Administradores veem apenas dados da própria organização.
+- `draft`
+- `open`
+- `partially_assigned`
+- `fully_assigned`
+- `completed`
+- `cancelled`
+
+Status de vaga:
+
+- `draft`
+- `open`
+- `assigned`
+- `completed`
+- `cancelled`
+
+Regras protegidas no banco:
+
+- mínimo de 1 vaga antes de publicar;
+- máximo de 5 vagas ativas por evento;
+- quantidade de vagas precisa bater com a soma dos serviços ao publicar;
+- mesmo freelancer não pode ocupar duas vagas ativas no mesmo evento;
+- apenas uma receita `event_earning` por vaga;
+- aceite de vaga aberta via RPC atômica `accept_open_event_slot(slot_id uuid)`.
+
+## RLS e permissões
+
+Administradores veem e gerenciam os dados da própria organização.
+
+Freelancers veem:
+
+- dados do próprio perfil;
+- vagas abertas da organização;
+- eventos em que fazem parte da equipe;
+- extrato financeiro próprio;
+- aceite próprio.
+
+Freelancers não atualizam vagas diretamente. O aceite passa pela RPC
+`accept_open_event_slot`, que bloqueia corrida quando duas pessoas tentam aceitar
+a mesma vaga ao mesmo tempo.
+
+## Regras financeiras
+
+O financeiro é controlado em `financial_entries`.
+
+Convenção:
+
+- valores positivos aumentam o valor devido ao freelancer;
+- valores negativos diminuem o valor devido ao freelancer.
+
+Exemplos por vaga:
+
+- vaga de R$ 150,00 concluída gera `+150`;
+- pagamento de R$ 100,00 gera `-100`;
+- saldo `+50`: a empresa ainda deve R$ 50,00;
+- pagamento de R$ 200,00 em vaga de R$ 150,00 gera saldo `-50`;
+- saldo negativo significa valor adiantado ao freelancer.
+
+O dashboard da empresa soma eventos, equipe, vagas abertas, vagas preenchidas,
+total contratado, pago e saldo. O dashboard de cada freelancer mostra eventos,
+ganhos, pagamentos, adiantamentos e saldo próprio.
+
+## Google Agenda
+
+A integração é viável com a Google Calendar API.
+
+Fluxo previsto:
+
+1. A empresa conecta a conta Google por OAuth.
+2. O sistema solicita escopo somente leitura:
+   `https://www.googleapis.com/auth/calendar.readonly`.
+3. A empresa abre a importação, escolhe um evento do Google Agenda e o sistema
+   preenche nome, data, horário, local, descrição e link.
+4. Depois da importação, a empresa define obrigatoriamente serviços, quantidade
+   de profissionais, freelancers e valores.
+
+O MVP usa importação manual selecionada pela empresa. Sincronização automática em
+tempo real pode ser adicionada depois com webhooks/watch do Google Calendar,
+armazenando `google_calendar_id` e `google_event_id`.
 
 ## Seed
 
 O seed está em `supabase/seed/seed.sql`.
 
-Para rodar em Supabase local:
+Ele inclui:
+
+- organização Traços Detalhados;
+- administrador;
+- seis freelancers;
+- catálogo de serviços;
+- eventos com 1, 3, 4 e 5 profissionais;
+- serviço Selfie impressa com 2 vagas no mesmo evento;
+- evento importado do Google;
+- evento concluído com saldo quitado, saldo a pagar e saldo negativo.
+
+Para Supabase local:
 
 1. Crie usuários Auth pelo Studio ou CLI.
 2. Substitua os UUIDs do seed pelos IDs reais dos usuários.
-3. Execute o seed no SQL Editor ou via CLI.
-
-O seed inclui organização, administrador, três freelancers, eventos futuros,
-abertos, concluídos, cancelados, pagamento parcial, pagamento completo e
-adiantamento.
-
-## Primeiro administrador
-
-Crie o usuário no Supabase Auth e insira um registro em `profiles` com:
-
-- `role = 'admin'`
-- `organization_id` da Traços Detalhados
-- `is_active = true`
-
-## Google Cloud e Google Agenda
-
-1. Crie ou selecione um projeto no Google Cloud.
-2. Ative a Google Calendar API.
-3. Configure a tela de consentimento OAuth.
-4. Crie credenciais OAuth 2.0 para aplicação web.
-5. Adicione URLs de redirecionamento:
-   - `http://localhost:3000/api/google/callback`
-   - `https://SEU_DOMINIO/api/google/callback`
-6. Preencha `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` e `GOOGLE_REDIRECT_URI`.
-
-O sistema solicita escopo somente leitura:
-
-- `https://www.googleapis.com/auth/calendar.readonly`
-
-Aplicativos públicos que acessam dados do Google podem precisar passar pelo
-processo de verificação do Google.
-
-## Deploy na Vercel
-
-1. Suba o projeto para um repositório Git.
-2. Importe o repositório na Vercel.
-3. Configure as variáveis de ambiente.
-4. Configure no Supabase Auth a URL da Vercel.
-5. Configure no Google OAuth a URL de callback da Vercel.
-6. Execute deploy.
-
-O build padrão é:
-
-```bash
-npm run build
-```
+3. Execute as migrations.
+4. Execute o seed no SQL Editor ou via CLI.
 
 ## Testes
 
@@ -159,39 +196,16 @@ npm run test:e2e
 
 Os testes unitários cobrem:
 
-- saldo positivo com pagamento parcial
-- saldo zero com pagamento completo
-- saldo negativo com pagamento superior
-- múltiplos pagamentos
-- adiantamento antes do evento
-- compensação de adiantamento
-- idempotência da conclusão
-- estorno
-- alteração de valor de evento concluído
-- reversão de conclusão
-- acesso entre freelancers
-- acesso entre organizações
-- aceite simultâneo de evento aberto
-
-## Regras financeiras
-
-O livro-caixa fica em `financial_entries`.
-
-Convenção:
-
-- valores positivos aumentam o valor devido ao freelancer
-- valores negativos diminuem o valor devido ao freelancer
-
-Exemplos:
-
-- evento de R$ 150,00 gera `+150`
-- pagamento de R$ 100,00 gera `-100`
-- saldo `+50`: a empresa deve R$ 50,00
-- pagamento/adiantamento de R$ 200,00 contra evento de R$ 150,00 deixa saldo `-50`
-- saldo negativo significa adiantamento recebido pelo freelancer
-
-Ao concluir evento, o sistema gera `event_earning` de forma idempotente. Se a
-conclusão for revertida, não apaga histórico: cria lançamento `reversal`.
+- evento com dois profissionais no mesmo serviço;
+- combinação de serviços diferentes no mesmo evento;
+- limite de cinco profissionais;
+- bloqueio da sexta vaga;
+- aceite simultâneo de vaga aberta;
+- bloqueio de duas vagas para o mesmo freelancer no mesmo evento;
+- conclusão financeira com receita por vaga;
+- pagamento parcial, pagamento maior e saldo negativo;
+- redução de quantidade preservando vaga preenchida;
+- conclusão parcial sem concluir o evento inteiro.
 
 ## Estrutura
 
@@ -203,22 +217,14 @@ conclusão for revertida, não apaga histórico: cria lançamento `reversal`.
 - `lib/supabase/`: clientes Supabase
 - `supabase/migrations/`: schema, RLS, views e RPCs
 - `supabase/seed/`: seed de desenvolvimento
-- `tests/unit/`: testes financeiros
+- `tests/unit/`: testes financeiros e regras de equipe
 - `tests/e2e/`: fluxos críticos Playwright
 
-## Limitações do MVP
-
-- A importação do Google Agenda é manual.
-- A estrutura está preparada para sincronização futura, sem sincronização
-  automática complexa neste MVP.
-- Sem credenciais externas, o app roda em modo demonstração para avaliação da
-  interface e regras.
-
-## Próximos passos recomendados
+## Próximos passos de produção
 
 - Conectar Supabase real.
-- Executar migrations em produção.
+- Executar as migrations `0001`, `0002` e `0003`.
 - Criar o primeiro administrador.
 - Configurar OAuth Google.
-- Adicionar domínio próprio na Vercel.
-- Evoluir permissões de convite e templates de e-mail.
+- Configurar variáveis de ambiente no provedor de hospedagem.
+- Ativar domínio próprio, se necessário.

@@ -1,10 +1,18 @@
 export type UserRole = "admin" | "freelancer";
 
 export type EventStatus =
-  "draft" | "open" | "assigned" | "completed" | "cancelled";
+  | "draft"
+  | "open"
+  | "assigned"
+  | "partially_assigned"
+  | "fully_assigned"
+  | "completed"
+  | "cancelled";
 
 export type AssignmentMode = "direct" | "open";
 export type EventSource = "manual" | "google_calendar";
+export type SlotStatus =
+  "draft" | "open" | "assigned" | "completed" | "cancelled";
 
 export type FinancialEntryType =
   | "event_earning"
@@ -64,10 +72,55 @@ export type EventRecord = {
   updatedAt: string;
 };
 
+export type ServiceRecord = {
+  id: string;
+  organizationId: string;
+  name: string;
+  description: string | null;
+  defaultProfessionals: number;
+  defaultFeeCents: number | null;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type EventService = {
+  id: string;
+  organizationId: string;
+  eventId: string;
+  serviceId: string | null;
+  serviceNameSnapshot: string;
+  quantityRequired: number;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type EventProfessionalSlot = {
+  id: string;
+  organizationId: string;
+  eventId: string;
+  eventServiceId: string;
+  slotNumber: number;
+  assignmentMode: AssignmentMode;
+  assignedFreelancerId: string | null;
+  agreedFeeCents: number;
+  status: SlotStatus;
+  acceptedAt: string | null;
+  completedAt: string | null;
+  cancelledAt: string | null;
+  cancellationReason: string | null;
+  notes: string | null;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type EventAcceptance = {
   id: string;
   organizationId: string;
   eventId: string;
+  eventProfessionalSlotId: string | null;
   freelancerId: string;
   status: AcceptanceStatus;
   createdAt: string;
@@ -78,6 +131,7 @@ export type FinancialEntry = {
   organizationId: string;
   freelancerId: string;
   eventId: string | null;
+  eventProfessionalSlotId: string | null;
   entryType: FinancialEntryType;
   description: string;
   amountCents: number;
