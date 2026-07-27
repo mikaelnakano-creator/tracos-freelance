@@ -1,5 +1,5 @@
-import { AuthCard } from "@/components/app/auth-card";
+import { redirect } from "next/navigation";
 
 export default function ChangePasswordPage() {
-  return <AuthCard mode="change" />;
+  redirect("/login");
 }

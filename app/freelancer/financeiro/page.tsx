@@ -1,5 +1,5 @@
-import { TracosWorkspace } from "@/components/app/tracos-workspace";
+import { redirect } from "next/navigation";
 
 export default function FreelancerFinancePage() {
-  return <TracosWorkspace role="freelancer" view="freelancer-finance" />;
+  redirect("/freelancer#financeiro");
 }

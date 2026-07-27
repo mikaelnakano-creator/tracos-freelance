@@ -45,8 +45,16 @@ export function OpenSlotCard({
           <strong className="text-lg text-[var(--text)]">
             {formatMoney(slot.agreedFeeCents)}
           </strong>
-          <Button onClick={() => onAccept?.(slot.id)} variant="bronze">
-            Aceitar esta vaga
+          <Button
+            onClick={() => {
+              const confirmed = window.confirm(
+                "Deseja aceitar esta vaga? Após a confirmação, seu nome será vinculado ao evento.",
+              );
+              if (confirmed) onAccept?.(slot.id);
+            }}
+            variant="bronze"
+          >
+            Aceitar trabalho
           </Button>
         </div>
       </CardContent>

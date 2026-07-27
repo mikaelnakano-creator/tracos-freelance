@@ -41,8 +41,28 @@ export type Profile = {
   phone: string;
   pixKey: string | null;
   avatarUrl: string | null;
+  googleAvatarUrl?: string | null;
   notes: string | null;
   isActive: boolean;
+  firstAccessAt?: string | null;
+  lastAccessAt?: string | null;
+};
+
+export type AuthorizedUser = {
+  id: string;
+  organizationId: string;
+  email: string;
+  role: UserRole;
+  fullName: string;
+  phone: string | null;
+  pixKey: string | null;
+  isActive: boolean;
+  linkedAuthUserId: string | null;
+  invitedBy: string | null;
+  firstAccessAt: string | null;
+  lastAccessAt: string | null;
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type EventRecord = {

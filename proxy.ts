@@ -2,6 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 const protectedPrefixes = ["/admin", "/freelancer"];
+type Role = "admin" | "freelancer";
 
 export async function proxy(request: NextRequest) {
   const shouldProtect = protectedPrefixes.some((prefix) =>
@@ -51,9 +52,45 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("role, is_active")
+    .eq("id", user.id)
+    .maybeSingle<{ role: Role; is_active: boolean }>();
+
+  if (!profile) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/acesso-negado";
+    return NextResponse.redirect(url);
+  }
+
+  if (!profile.is_active) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/conta-inativa";
+    return NextResponse.redirect(url);
+  }
+
+  if (
+    request.nextUrl.pathname.startsWith("/admin") &&
+    profile.role !== "admin"
+  ) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/freelancer";
+    return NextResponse.redirect(url);
+  }
+
+  if (
+    request.nextUrl.pathname.startsWith("/freelancer") &&
+    profile.role !== "freelancer"
+  ) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/admin/dashboard";
+    return NextResponse.redirect(url);
+  }
+
   return response;
 }
 
 export const config = {
-  matcher: ["/admin/:path*", "/freelancer/:path*"],
+  matcher: ["/admin/:path*", "/freelancer", "/freelancer/:path*"],
 };

@@ -27,7 +27,7 @@ export async function GET(request: Request) {
 
     return NextResponse.redirect(
       new URL(
-        `/admin/configuracoes/integracoes?google=connected&token=${encryptedRefreshToken ? "stored" : "missing-refresh-token"}`,
+        `/admin/google-agenda?google=connected&token=${encryptedRefreshToken ? "stored" : "missing-refresh-token"}`,
         request.url,
       ),
     );

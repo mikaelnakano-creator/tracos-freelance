@@ -7,6 +7,10 @@ export function formatMoney(cents: number) {
   return moneyFormatter.format(cents / 100);
 }
 
+export function formatCurrency(cents: number) {
+  return formatMoney(cents);
+}
+
 export function parseMoneyToCents(value: string) {
   const normalized = value
     .replace(/[^\d,.-]/g, "")

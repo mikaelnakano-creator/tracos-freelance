@@ -1,46 +1,64 @@
 # Traços Freelance
 
-Sistema web da Traços Detalhados para controlar eventos, equipes de freelancers,
-vagas abertas, aceite pelos parceiros, conclusão dos serviços e financeiro por
-profissional.
+Sistema web da Traços Detalhados para administrar eventos, serviços, vagas de
+freelancers, aceite de trabalhos, pagamentos, saldos e importação do Google
+Agenda.
 
-Cada evento pode ter de 1 a 5 profissionais. A empresa monta a equipe por
-serviço, por exemplo:
+## Acesso
 
-- Fotografia: 1 profissional
-- Filmagem: 1 profissional
-- Selfie impressa: 2 profissionais
+O login é exclusivamente pelo Google via Supabase Auth.
 
-Cada vaga tem seu próprio freelancer, valor combinado, status, aceite,
-conclusão, pagamentos e saldo.
+- Não há login por senha.
+- Não há cadastro público.
+- Não há recuperação ou alteração de senha na interface.
+- O usuário só acessa se o e-mail Google estiver previamente autorizado.
+- A função `admin` ou `freelancer` vem somente do banco de dados.
+
+Fluxo:
+
+1. O administrador cadastra o e-mail Google autorizado.
+2. O usuário entra em `/login` e clica em `Continuar com Google`.
+3. O callback valida o usuário no Supabase.
+4. O sistema procura o e-mail em `profiles` ou `authorized_users`.
+5. Usuário autorizado é vinculado ao `auth.users.id`.
+6. Usuário não autorizado vai para `/acesso-negado`.
+7. Usuário inativo vai para `/conta-inativa`.
+
+Redirecionamento:
+
+- Administrador: `/admin/dashboard`
+- Freelancer: `/freelancer`
+
+## Primeiro Administrador
+
+Configure:
+
+```env
+FIRST_ADMIN_EMAIL=admin@tracosdetalhados.com.br
+```
+
+No primeiro login Google, se esse e-mail bater com `FIRST_ADMIN_EMAIL` e ainda
+não existir nenhum administrador, o sistema cria o primeiro perfil admin para a
+organização Traços Detalhados.
+
+Depois disso, administradores novos devem ser autorizados por outro
+administrador.
 
 ## Stack
 
-- Next.js com App Router
-- TypeScript estrito
-- React
+- Next.js App Router
+- TypeScript
 - Tailwind CSS
 - Componentes locais no padrão shadcn/ui
-- Lucide Icons
-- Supabase Auth, PostgreSQL, RPCs e Row Level Security
-- Zod
-- date-fns com pt-BR
+- Supabase Auth, PostgreSQL, RPCs e RLS
+- Google OAuth para login
+- Google Calendar API para importação administrativa
 - Recharts
 - Vitest
 - Playwright
-- Deploy compatível com Vercel e ChatGPT Sites
+- ChatGPT Sites / Vercel-ready
 
-## Instalação local
-
-```bash
-npm install
-cp .env.example .env.local
-npm run dev
-```
-
-Abra `http://localhost:3000`.
-
-## Variáveis de ambiente
+## Variáveis
 
 ```env
 NEXT_PUBLIC_APP_URL=http://localhost:3000
@@ -49,144 +67,188 @@ NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
 
+FIRST_ADMIN_EMAIL=
+
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
-GOOGLE_REDIRECT_URI=http://localhost:3000/api/google/callback
+
+GOOGLE_CALENDAR_REDIRECT_URI=http://localhost:3000/api/google/calendar/callback
 GOOGLE_TOKEN_ENCRYPTION_KEY=
 ```
 
-`GOOGLE_TOKEN_ENCRYPTION_KEY` deve ser base64 com 32 bytes:
+No Supabase, habilite o provider Google com os escopos básicos de login:
 
-```bash
-node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
-```
+- `openid`
+- `email`
+- `profile`
 
-## Modelo do banco
+A integração do Google Agenda é separada do login e usa somente:
 
-As migrations ficam em `supabase/migrations/`.
+- `https://www.googleapis.com/auth/calendar.readonly`
 
-- `0001_initial_schema.sql`: base inicial de organização, perfis, eventos,
-  financeiro, Google e auditoria.
-- `0002_event_status_values.sql`: adiciona os status `partially_assigned` e
-  `fully_assigned`.
-- `0003_event_team_slots.sql`: adiciona serviços, vagas por profissional,
-  aceite atômico por vaga, financeiro por vaga, novas views e políticas RLS.
+Não misture tokens de login com tokens da Agenda.
+
+## Banco de Dados
+
+Migrations:
+
+- `0001_initial_schema.sql`: organização, perfis, eventos, financeiro, Google e
+  auditoria.
+- `0002_event_status_values.sql`: novos status de equipe.
+- `0003_event_team_slots.sql`: serviços, vagas profissionais, RPC de aceite,
+  financeiro por vaga e RLS.
+- `0004_google_authorized_access.sql`: `authorized_users`, vínculo Google,
+  primeiro acesso, último acesso e proteção de atualização de perfil.
 
 Tabelas principais:
 
-- `services`: catálogo de serviços da empresa.
-- `event_services`: serviços escolhidos para cada evento e quantidade exigida.
-- `event_professional_slots`: vagas individuais de cada serviço.
-- `financial_entries`: lançamentos financeiros, agora com
-  `event_professional_slot_id`.
-- `event_acceptances`: histórico de aceite, também ligado à vaga.
+- `organizations`
+- `profiles`
+- `authorized_users`
+- `services`
+- `events`
+- `event_services`
+- `event_professional_slots`
+- `financial_entries`
+- `google_connections`
+- `audit_logs`
 
-Status de evento:
+## Regras de Eventos
 
-- `draft`
-- `open`
-- `partially_assigned`
-- `fully_assigned`
-- `completed`
-- `cancelled`
+Cada evento pode ter de 1 a 5 profissionais.
 
-Status de vaga:
+Exemplo:
 
-- `draft`
-- `open`
-- `assigned`
-- `completed`
-- `cancelled`
+- Fotografia: 1 profissional
+- Filmagem: 1 profissional
+- Selfie impressa: 2 profissionais
 
-Regras protegidas no banco:
+Cada vaga tem:
 
-- mínimo de 1 vaga antes de publicar;
-- máximo de 5 vagas ativas por evento;
-- quantidade de vagas precisa bater com a soma dos serviços ao publicar;
-- mesmo freelancer não pode ocupar duas vagas ativas no mesmo evento;
-- apenas uma receita `event_earning` por vaga;
-- aceite de vaga aberta via RPC atômica `accept_open_event_slot(slot_id uuid)`.
+- serviço;
+- número da vaga;
+- forma de preenchimento;
+- freelancer designado ou vaga aberta;
+- valor combinado;
+- status;
+- pagamentos e saldo próprios.
 
-## RLS e permissões
+Status:
 
-Administradores veem e gerenciam os dados da própria organização.
+- Rascunho
+- Aberto
+- Equipe parcial
+- Equipe completa
+- Concluído
+- Cancelado
 
-Freelancers veem:
+O aceite acontece por vaga pela RPC segura:
 
-- dados do próprio perfil;
-- vagas abertas da organização;
-- eventos em que fazem parte da equipe;
-- extrato financeiro próprio;
-- aceite próprio.
+```sql
+accept_open_event_slot(slot_id uuid)
+```
 
-Freelancers não atualizam vagas diretamente. O aceite passa pela RPC
-`accept_open_event_slot`, que bloqueia corrida quando duas pessoas tentam aceitar
-a mesma vaga ao mesmo tempo.
+Ela bloqueia a vaga, confirma que continua aberta, impede duas vagas para o
+mesmo freelancer no mesmo evento e atualiza o status geral.
 
-## Regras financeiras
+## Financeiro
 
-O financeiro é controlado em `financial_entries`.
+Convenção em `financial_entries`:
 
-Convenção:
+- receita do freelancer: valor positivo;
+- pagamento ao freelancer: valor negativo;
+- adiantamento: valor negativo;
+- estorno: lançamento novo, sem apagar histórico.
 
-- valores positivos aumentam o valor devido ao freelancer;
-- valores negativos diminuem o valor devido ao freelancer.
+Exemplos:
 
-Exemplos por vaga:
+- Receita `+R$ 150,00`
+- Pagamento `-R$ 100,00`
+- Saldo `R$ 50,00 a receber`
 
-- vaga de R$ 150,00 concluída gera `+150`;
-- pagamento de R$ 100,00 gera `-100`;
-- saldo `+50`: a empresa ainda deve R$ 50,00;
-- pagamento de R$ 200,00 em vaga de R$ 150,00 gera saldo `-50`;
-- saldo negativo significa valor adiantado ao freelancer.
+Outro caso:
 
-O dashboard da empresa soma eventos, equipe, vagas abertas, vagas preenchidas,
-total contratado, pago e saldo. O dashboard de cada freelancer mostra eventos,
-ganhos, pagamentos, adiantamentos e saldo próprio.
+- Receita `+R$ 150,00`
+- Pagamento `-R$ 200,00`
+- Saldo `R$ 50,00 adiantado`
+
+Cada receita de vaga concluída é idempotente: não pode existir mais de um
+`event_earning` para a mesma vaga.
+
+## Área Administrativa
+
+Rotas:
+
+- `/admin/dashboard`
+- `/admin/eventos`
+- `/admin/eventos/novo`
+- `/admin/eventos/[id]`
+- `/admin/eventos/[id]/editar`
+- `/admin/freelancers`
+- `/admin/freelancers/novo`
+- `/admin/freelancers/[id]`
+- `/admin/servicos`
+- `/admin/financeiro`
+- `/admin/financeiro/lancamentos`
+- `/admin/relatorios`
+- `/admin/google-agenda`
+- `/admin/configuracoes`
+
+O administrador possui sidebar, dashboard completo, gestão de eventos,
+freelancers, serviços, financeiro, relatórios, Google Agenda e configurações.
+
+## Área do Freelancer
+
+O freelancer usa apenas:
+
+- `/freelancer`
+
+Não há sidebar nem páginas separadas. O dashboard único mostra:
+
+- resumo;
+- próximos trabalhos;
+- oportunidades abertas;
+- eventos realizados;
+- resumo financeiro;
+- extrato próprio.
+
+O freelancer vê somente seus próprios dados, vagas e lançamentos financeiros.
 
 ## Google Agenda
 
-A integração é viável com a Google Calendar API.
+A Agenda é uma integração administrativa, separada do login.
 
-Fluxo previsto:
+Fluxo:
 
-1. A empresa conecta a conta Google por OAuth.
-2. O sistema solicita escopo somente leitura:
-   `https://www.googleapis.com/auth/calendar.readonly`.
-3. A empresa abre a importação, escolhe um evento do Google Agenda e o sistema
-   preenche nome, data, horário, local, descrição e link.
-4. Depois da importação, a empresa define obrigatoriamente serviços, quantidade
-   de profissionais, freelancers e valores.
+1. Administrador acessa `Google Agenda`.
+2. Conecta a agenda com OAuth próprio.
+3. Seleciona eventos.
+4. O sistema importa nome, descrição, data, horário, local, endereço e link.
+5. O administrador completa serviços, vagas, valores e equipe.
 
-O MVP usa importação manual selecionada pela empresa. Sincronização automática em
-tempo real pode ser adicionada depois com webhooks/watch do Google Calendar,
-armazenando `google_calendar_id` e `google_event_id`.
+A constraint única evita importar o mesmo evento duas vezes.
 
 ## Seed
 
-O seed está em `supabase/seed/seed.sql`.
-
-Ele inclui:
+O seed em `supabase/seed/seed.sql` inclui:
 
 - organização Traços Detalhados;
-- administrador;
-- seis freelancers;
+- perfis de demonstração;
+- e-mails autorizados;
 - catálogo de serviços;
-- eventos com 1, 3, 4 e 5 profissionais;
-- serviço Selfie impressa com 2 vagas no mesmo evento;
-- evento importado do Google;
-- evento concluído com saldo quitado, saldo a pagar e saldo negativo.
+- eventos futuros e concluídos;
+- vagas abertas;
+- equipe parcial e completa;
+- pagamentos parciais;
+- pagamentos completos;
+- adiantamentos.
 
-Para Supabase local:
+O seed não cria usuários reais no Google.
 
-1. Crie usuários Auth pelo Studio ou CLI.
-2. Substitua os UUIDs do seed pelos IDs reais dos usuários.
-3. Execute as migrations.
-4. Execute o seed no SQL Editor ou via CLI.
-
-## Testes
+## Validação
 
 ```bash
+npm run format:check
 npm run lint
 npm run typecheck
 npm run test
@@ -194,37 +256,14 @@ npm run build
 npm run test:e2e
 ```
 
-Os testes unitários cobrem:
+## Produção
 
-- evento com dois profissionais no mesmo serviço;
-- combinação de serviços diferentes no mesmo evento;
-- limite de cinco profissionais;
-- bloqueio da sexta vaga;
-- aceite simultâneo de vaga aberta;
-- bloqueio de duas vagas para o mesmo freelancer no mesmo evento;
-- conclusão financeira com receita por vaga;
-- pagamento parcial, pagamento maior e saldo negativo;
-- redução de quantidade preservando vaga preenchida;
-- conclusão parcial sem concluir o evento inteiro.
-
-## Estrutura
-
-- `app/`: rotas do App Router
-- `components/`: componentes de UI, formulários e área do sistema
-- `lib/domain/`: regras financeiras, tipos e validações
-- `lib/demo/`: dados demonstrativos fora dos componentes
-- `lib/google/`: OAuth, Calendar API e criptografia de tokens
-- `lib/supabase/`: clientes Supabase
-- `supabase/migrations/`: schema, RLS, views e RPCs
-- `supabase/seed/`: seed de desenvolvimento
-- `tests/unit/`: testes financeiros e regras de equipe
-- `tests/e2e/`: fluxos críticos Playwright
-
-## Próximos passos de produção
-
-- Conectar Supabase real.
-- Executar as migrations `0001`, `0002` e `0003`.
-- Criar o primeiro administrador.
-- Configurar OAuth Google.
-- Configurar variáveis de ambiente no provedor de hospedagem.
-- Ativar domínio próprio, se necessário.
+1. Criar projeto Supabase.
+2. Executar as migrations `0001` a `0004`.
+3. Configurar Google OAuth no Supabase.
+4. Definir `FIRST_ADMIN_EMAIL`.
+5. Configurar Google Calendar API com callback
+   `/api/google/calendar/callback`.
+6. Configurar variáveis no provedor.
+7. Fazer login com o primeiro admin.
+8. Autorizar freelancers pelo e-mail Google.

@@ -5,9 +5,11 @@ const envSchema = z.object({
   NEXT_PUBLIC_SUPABASE_URL: z.string().url().optional(),
   NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: z.string().optional(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().optional(),
+  FIRST_ADMIN_EMAIL: z.string().email().optional(),
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),
   GOOGLE_REDIRECT_URI: z.string().url().optional(),
+  GOOGLE_CALENDAR_REDIRECT_URI: z.string().url().optional(),
   GOOGLE_TOKEN_ENCRYPTION_KEY: z.string().optional(),
 });
 

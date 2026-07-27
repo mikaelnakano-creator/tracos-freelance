@@ -39,6 +39,35 @@ set full_name = excluded.full_name,
     notes = excluded.notes,
     is_active = excluded.is_active;
 
+insert into public.authorized_users (
+  id,
+  organization_id,
+  email,
+  role,
+  full_name,
+  phone,
+  pix_key,
+  is_active,
+  invited_by,
+  first_access_at
+)
+values
+  ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1', '11111111-1111-4111-8111-111111111111', 'admin@tracosdetalhados.com.br', 'admin', 'Mikael Nakano', '(65) 99999-0001', null, true, null, null),
+  ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2', '11111111-1111-4111-8111-111111111111', 'ana@parceiros.com.br', 'freelancer', 'Ana Clara Mendes', '(65) 98888-1001', 'ana@pix.com', true, '22222222-2222-4222-8222-222222222221', null),
+  ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa3', '11111111-1111-4111-8111-111111111111', 'bruno@parceiros.com.br', 'freelancer', 'Bruno Reis', '(65) 98888-1002', 'bruno@pix.com', true, '22222222-2222-4222-8222-222222222221', null),
+  ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa4', '11111111-1111-4111-8111-111111111111', 'livia@parceiros.com.br', 'freelancer', 'Lívia Santos', '(65) 98888-1003', '11988447766', true, '22222222-2222-4222-8222-222222222221', null),
+  ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa5', '11111111-1111-4111-8111-111111111111', 'carlos@parceiros.com.br', 'freelancer', 'Carlos Eduardo', '(65) 98888-1004', 'carlos@pix.com', true, '22222222-2222-4222-8222-222222222221', null),
+  ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa6', '11111111-1111-4111-8111-111111111111', 'maria@parceiros.com.br', 'freelancer', 'Maria Fernanda', '(65) 98888-1005', 'maria@pix.com', true, '22222222-2222-4222-8222-222222222221', null),
+  ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa7', '11111111-1111-4111-8111-111111111111', 'joao@parceiros.com.br', 'freelancer', 'João Pedro', '(65) 98888-1006', 'joao@pix.com', false, '22222222-2222-4222-8222-222222222221', null)
+on conflict (id) do update
+set email = excluded.email,
+    role = excluded.role,
+    full_name = excluded.full_name,
+    phone = excluded.phone,
+    pix_key = excluded.pix_key,
+    is_active = excluded.is_active,
+    invited_by = excluded.invited_by;
+
 insert into public.services (
   id,
   organization_id,

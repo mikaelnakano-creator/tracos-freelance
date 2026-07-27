@@ -1,5 +1,5 @@
-import { AuthCard } from "@/components/app/auth-card";
+import { redirect } from "next/navigation";
 
 export default function RecoverPasswordPage() {
-  return <AuthCard mode="recover" />;
+  redirect("/login");
 }

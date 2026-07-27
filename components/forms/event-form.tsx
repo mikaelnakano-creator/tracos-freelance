@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { useMemo, useState } from "react";
 import { Save, Send, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -112,6 +113,25 @@ function EventFormFields({
 
   const totalProfessionals = values.services.reduce(
     (sum, service) => sum + service.quantityRequired,
+    0,
+  );
+  const openSlots = values.services.reduce(
+    (sum, service) =>
+      sum +
+      service.slots.filter((slot) => slot.assignmentMode === "open").length,
+    0,
+  );
+  const totalFee = values.services.reduce(
+    (sum, service) =>
+      sum +
+      service.slots.reduce((serviceSum, slot) => {
+        const normalized = slot.agreedFee
+          .replace(/[^\d,.-]/g, "")
+          .replace(/\./g, "")
+          .replace(",", ".");
+        const amount = Number(normalized);
+        return serviceSum + (Number.isFinite(amount) ? amount : 0);
+      }, 0),
     0,
   );
 
@@ -255,6 +275,48 @@ function EventFormFields({
         onChange={(eventServices) => update("services", eventServices)}
       />
 
+      <Card>
+        <CardHeader>
+          <CardTitle>Etapa 4 - Revisão</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-3 text-sm">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <ReviewItem label="Evento" value={values.title} />
+            <ReviewItem
+              label="Profissionais"
+              value={`${totalProfessionals} de 5`}
+            />
+            <ReviewItem label="Vagas abertas" value={openSlots} />
+            <ReviewItem
+              label="Valor previsto"
+              value={new Intl.NumberFormat("pt-BR", {
+                style: "currency",
+                currency: "BRL",
+              }).format(totalFee)}
+            />
+          </div>
+          <div className="grid gap-2">
+            {values.services.map((service) => (
+              <div
+                className="rounded-md border border-[var(--border)] p-3"
+                key={service.draftId}
+              >
+                <strong>{service.serviceNameSnapshot}</strong>
+                <span className="block text-[var(--muted)]">
+                  {service.quantityRequired} profissional(is),{" "}
+                  {
+                    service.slots.filter(
+                      (slot) => slot.assignmentMode === "open",
+                    ).length
+                  }{" "}
+                  vaga(s) aberta(s)
+                </span>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
       <div className="flex flex-wrap justify-end gap-2">
         <Button onClick={() => submitWithAction("draft")} variant="secondary">
           <Save size={16} />
@@ -272,6 +334,19 @@ function EventFormFields({
           Cancelar
         </Button>
       </div>
+    </div>
+  );
+}
+
+function ReviewItem({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="min-w-0 rounded-md bg-[var(--surface-muted)] p-3">
+      <span className="block truncate text-xs font-bold uppercase text-[var(--muted)]">
+        {label}
+      </span>
+      <strong className="mt-1 block truncate whitespace-nowrap tabular-nums text-[var(--text)]">
+        {value}
+      </strong>
     </div>
   );
 }

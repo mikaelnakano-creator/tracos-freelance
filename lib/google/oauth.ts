@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { requireEnv } from "@/lib/env";
+import { getOptionalEnv, requireEnv } from "@/lib/env";
 
 export const GOOGLE_CALENDAR_SCOPES = [
   "https://www.googleapis.com/auth/calendar.readonly",
@@ -10,11 +10,11 @@ export function createGoogleOAuthState() {
 }
 
 export function buildGoogleAuthorizationUrl(state: string) {
-  const env = requireEnv(["GOOGLE_CLIENT_ID", "GOOGLE_REDIRECT_URI"]);
+  const env = requireEnv(["GOOGLE_CLIENT_ID"]);
   const url = new URL("https://accounts.google.com/o/oauth2/v2/auth");
 
   url.searchParams.set("client_id", env.GOOGLE_CLIENT_ID);
-  url.searchParams.set("redirect_uri", env.GOOGLE_REDIRECT_URI);
+  url.searchParams.set("redirect_uri", getGoogleCalendarRedirectUri());
   url.searchParams.set("response_type", "code");
   url.searchParams.set("scope", GOOGLE_CALENDAR_SCOPES.join(" "));
   url.searchParams.set("access_type", "offline");
@@ -25,11 +25,7 @@ export function buildGoogleAuthorizationUrl(state: string) {
 }
 
 export async function exchangeGoogleCode(code: string) {
-  const env = requireEnv([
-    "GOOGLE_CLIENT_ID",
-    "GOOGLE_CLIENT_SECRET",
-    "GOOGLE_REDIRECT_URI",
-  ]);
+  const env = requireEnv(["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"]);
 
   const response = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
@@ -38,7 +34,7 @@ export async function exchangeGoogleCode(code: string) {
       code,
       client_id: env.GOOGLE_CLIENT_ID,
       client_secret: env.GOOGLE_CLIENT_SECRET,
-      redirect_uri: env.GOOGLE_REDIRECT_URI,
+      redirect_uri: getGoogleCalendarRedirectUri(),
       grant_type: "authorization_code",
     }),
   });
@@ -54,4 +50,18 @@ export async function exchangeGoogleCode(code: string) {
     scope: string;
     token_type: string;
   }>;
+}
+
+function getGoogleCalendarRedirectUri() {
+  const env = getOptionalEnv();
+  const redirectUri =
+    env.GOOGLE_CALENDAR_REDIRECT_URI ?? env.GOOGLE_REDIRECT_URI;
+
+  if (!redirectUri) {
+    throw new Error(
+      "Configuração ausente: GOOGLE_CALENDAR_REDIRECT_URI. Confira o .env.local.",
+    );
+  }
+
+  return redirectUri;
 }

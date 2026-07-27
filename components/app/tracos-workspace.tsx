@@ -4,9 +4,10 @@ import Link from "next/link";
 import {
   Banknote,
   BarChart3,
-  CalendarCheck,
+  BriefcaseBusiness,
   CalendarClock,
   CalendarDays,
+  CalendarRange,
   CheckCircle2,
   ClipboardList,
   CreditCard,
@@ -14,6 +15,7 @@ import {
   LayoutDashboard,
   LogOut,
   Menu,
+  Power,
   Plug,
   Plus,
   Settings,
@@ -112,6 +114,7 @@ import type {
   FinancialEntry,
   GoogleCalendarEvent,
   Profile,
+  ServiceRecord,
 } from "@/lib/domain/types";
 import type {
   EventFormValues,
@@ -134,11 +137,13 @@ export type WorkspaceView =
   | "admin-freelancers"
   | "admin-freelancer-new"
   | "admin-freelancer-detail"
+  | "admin-services"
   | "admin-finance"
   | "admin-financial-entries"
   | "admin-reports"
   | "admin-settings"
   | "admin-integrations"
+  | "admin-google-calendar"
   | "freelancer-dashboard"
   | "freelancer-events"
   | "freelancer-opportunities"
@@ -146,28 +151,15 @@ export type WorkspaceView =
   | "freelancer-profile";
 
 const adminLinks = [
-  { href: "/admin/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/admin/dashboard", label: "Visão geral", icon: LayoutDashboard },
   { href: "/admin/eventos", label: "Eventos", icon: CalendarDays },
   { href: "/admin/freelancers", label: "Freelancers", icon: Users },
+  { href: "/admin/servicos", label: "Serviços", icon: BriefcaseBusiness },
   { href: "/admin/financeiro", label: "Financeiro", icon: Wallet },
   { href: "/admin/relatorios", label: "Relatórios", icon: BarChart3 },
-  {
-    href: "/admin/configuracoes/integracoes",
-    label: "Integrações",
-    icon: Plug,
-  },
-];
-
-const freelancerLinks = [
-  { href: "/freelancer/dashboard", label: "Meu painel", icon: LayoutDashboard },
-  { href: "/freelancer/eventos", label: "Meus trabalhos", icon: CalendarCheck },
-  {
-    href: "/freelancer/oportunidades",
-    label: "Oportunidades",
-    icon: ClipboardList,
-  },
-  { href: "/freelancer/financeiro", label: "Financeiro", icon: Banknote },
-  { href: "/freelancer/perfil", label: "Perfil", icon: Settings },
+  { href: "/admin/google-agenda", label: "Google Agenda", icon: CalendarRange },
+  { href: "/admin/configuracoes", label: "Configurações", icon: Settings },
+  { href: "/auth/logout", label: "Sair", icon: Power },
 ];
 
 const chartColors = ["#2f7a78", "#496aaf", "#236f59", "#bd3f32", "#805ad5"];
@@ -192,6 +184,7 @@ export function TracosWorkspace({
     EventProfessionalSlot[]
   >(demoProfessionalSlots);
   const [profiles, setProfiles] = useState<Profile[]>(demoProfiles);
+  const [services, setServices] = useState<ServiceRecord[]>(demoServices);
   const [entries, setEntries] =
     useState<FinancialEntry[]>(demoFinancialEntries);
   const [acceptances, setAcceptances] =
@@ -683,7 +676,7 @@ export function TracosWorkspace({
     };
     setProfiles((current) => [...current, profile]);
     addAudit("freelancer.invited", "profiles", profile.id);
-    showToast("Freelancer cadastrado.");
+    showToast("Freelancer autorizado para primeiro acesso com Google.");
   }
 
   function exportCsv() {
@@ -743,6 +736,7 @@ export function TracosWorkspace({
           eventServices={eventServices}
           events={visibleEvents}
           profiles={profiles}
+          services={services}
           slots={professionalSlots}
           onCancel={handleCancelEvent}
           onCompleteAll={handleCompleteAll}
@@ -756,7 +750,7 @@ export function TracosWorkspace({
           <EventEditor
             importedEvent={importedEvent}
             profiles={profiles}
-            services={demoServices}
+            services={services}
             title={view === "admin-event-new" ? "Novo evento" : "Editar evento"}
             onOpenGoogle={() => setGoogleDialogOpen(true)}
             onSubmit={handleCreateEvent}
@@ -778,6 +772,26 @@ export function TracosWorkspace({
             }}
           />
         </>
+      );
+    }
+
+    if (view === "admin-services") {
+      return (
+        <AdminServices
+          services={services}
+          onSave={(service) => {
+            setServices((current) => {
+              const exists = current.some((item) => item.id === service.id);
+              return exists
+                ? current.map((item) =>
+                    item.id === service.id ? service : item,
+                  )
+                : [service, ...current];
+            });
+            addAudit("service.saved", "services", service.id);
+            showToast("Serviço salvo no catálogo.");
+          }}
+        />
       );
     }
 
@@ -871,12 +885,13 @@ export function TracosWorkspace({
       return (
         <SettingsPage
           calendarConnected={calendarConnected}
+          services={services}
           onConnectCalendar={() => setCalendarConnected(true)}
         />
       );
     }
 
-    if (view === "admin-integrations") {
+    if (view === "admin-integrations" || view === "admin-google-calendar") {
       return (
         <IntegrationsPage
           calendarConnected={calendarConnected}
@@ -935,6 +950,15 @@ export function TracosWorkspace({
     );
   }
 
+  if (role === "freelancer") {
+    return (
+      <FreelancerShell user={currentFreelancer}>
+        <Toast message={toast} onClose={() => setToast("")} />
+        {renderView()}
+      </FreelancerShell>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[var(--background)]">
       <div className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-[var(--border)] bg-white px-4 lg:hidden">
@@ -945,7 +969,7 @@ export function TracosWorkspace({
       </div>
       <div className="grid lg:grid-cols-[280px_1fr]">
         <Sidebar
-          links={role === "admin" ? adminLinks : freelancerLinks}
+          links={adminLinks}
           mobileOpen={mobileOpen}
           role={role}
           user={currentUser}
@@ -956,6 +980,62 @@ export function TracosWorkspace({
           {renderView()}
         </main>
       </div>
+    </div>
+  );
+}
+
+function FreelancerShell({
+  user,
+  children,
+}: {
+  user: Profile;
+  children: ReactNode;
+}) {
+  return (
+    <div className="min-h-screen bg-[var(--background)]">
+      <header className="sticky top-0 z-30 border-b border-[var(--border)] bg-white/95 backdrop-blur">
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-md bg-[var(--brand)] font-black text-[var(--brand-contrast)]">
+              TD
+            </span>
+            <div className="min-w-0">
+              <strong className="block truncate text-sm text-[var(--text)]">
+                Traços Freelance
+              </strong>
+              <span className="block truncate text-xs text-[var(--muted)]">
+                {user.fullName}
+              </span>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="hidden h-9 w-9 place-items-center rounded-full bg-[var(--surface-muted)] text-xs font-black text-[var(--text)] sm:grid">
+              {initials(user.fullName)}
+            </span>
+            <LinkButton href="/auth/logout" size="sm" variant="secondary">
+              <LogOut size={14} />
+              Sair
+            </LinkButton>
+          </div>
+        </div>
+        <nav className="mx-auto flex max-w-7xl gap-2 overflow-x-auto px-4 pb-3 sm:px-6">
+          {[
+            ["#inicio", "Início"],
+            ["#trabalhos", "Trabalhos"],
+            ["#oportunidades", "Oportunidades"],
+            ["#financeiro", "Financeiro"],
+          ].map(([href, label]) => (
+            <a
+              className="whitespace-nowrap rounded-md border border-[var(--border)] bg-white px-3 py-2 text-xs font-bold text-[var(--text)]"
+              href={href}
+              key={href}
+            >
+              {label}
+            </a>
+          ))}
+        </nav>
+      </header>
+      <main className="mx-auto max-w-7xl p-4 sm:p-6">{children}</main>
     </div>
   );
 }
@@ -1036,7 +1116,7 @@ function Sidebar({
               </span>
             </div>
           </div>
-          <LinkButton href="/login" variant="secondary">
+          <LinkButton href="/auth/logout" variant="secondary">
             <LogOut size={16} />
             Sair
           </LinkButton>
@@ -1102,6 +1182,19 @@ function AdminDashboard({
       />
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
+          description="Eventos futuros ou em andamento"
+          icon={CalendarDays}
+          title="Próximos eventos"
+          value={metrics.upcomingEvents}
+        />
+        <StatCard
+          description="Eventos realizados no período"
+          icon={CheckCircle2}
+          title="Eventos realizados"
+          tone="green"
+          value={metrics.completedThisMonth}
+        />
+        <StatCard
           description="Eventos sem pendências de equipe"
           icon={CheckCircle2}
           title="Equipes completas"
@@ -1147,6 +1240,20 @@ function AdminDashboard({
           title="Valor recebido"
           tone="blue"
           value={formatMoney(metrics.paidThisMonth)}
+        />
+        <StatCard
+          description="Saldo positivo dos parceiros"
+          icon={Wallet}
+          title="Total a pagar"
+          tone="red"
+          value={formatMoney(metrics.totalDue)}
+        />
+        <StatCard
+          description="Saldos negativos dos parceiros"
+          icon={CreditCard}
+          title="Adiantamentos"
+          tone="blue"
+          value={formatMoney(metrics.totalAdvances)}
         />
         <StatCard
           description={describeBalance(metrics.netBalance, "admin")}
@@ -1245,6 +1352,7 @@ function AdminEvents({
   events,
   slots,
   eventServices,
+  services,
   entries,
   profiles,
   onCompleteAll,
@@ -1253,6 +1361,7 @@ function AdminEvents({
   events: EventRecord[];
   slots: EventProfessionalSlot[];
   eventServices: EventService[];
+  services: ServiceRecord[];
   entries: FinancialEntry[];
   profiles: Profile[];
   onCompleteAll: (eventId: string) => void;
@@ -1324,7 +1433,7 @@ function AdminEvents({
               onChange={(event) => setServiceFilter(event.target.value)}
             >
               <option value="all">Todos</option>
-              {demoServices.map((service) => (
+              {services.map((service) => (
                 <option key={service.id} value={service.id}>
                   {service.name}
                 </option>
@@ -1379,7 +1488,7 @@ function EventEditor({
 }: {
   title: string;
   profiles: Profile[];
-  services: typeof demoServices;
+  services: ServiceRecord[];
   importedEvent: GoogleCalendarEvent | null;
   onSubmit: (
     values: EventFormValues,
@@ -1642,9 +1751,20 @@ function FreelancerSummaryGrid({
                   {summary.profile.email}
                 </span>
               </div>
+              <Badge
+                className="ml-auto shrink-0"
+                tone={summary.profile.isActive ? "success" : "danger"}
+              >
+                {freelancerAccessStatus(summary.profile)}
+              </Badge>
             </div>
             <div className="grid min-w-0 grid-cols-2 gap-2 text-sm">
               <MetricBox label="Trabalhos" value={summary.completedSlots} />
+              <MetricBox
+                label="Gerado"
+                value={formatMoney(summary.totalGenerated)}
+              />
+              <MetricBox label="Pago" value={formatMoney(summary.totalPaid)} />
               <MetricBox label="Saldo" value={formatMoney(summary.balance)} />
             </div>
             {summary.nextEvent ? (
@@ -1689,7 +1809,7 @@ function FreelancerNew({
   return (
     <>
       <PageHeader
-        description="Cadastre um parceiro para designação de vagas."
+        description="Cadastre o e-mail Google autorizado antes do primeiro acesso."
         eyebrow="Freelancers"
         title="Novo freelancer"
       />
@@ -1704,13 +1824,17 @@ function FreelancerNew({
             />
           </Field>
           <div className="grid gap-4 md:grid-cols-2">
-            <Field label="E-mail">
+            <Field label="E-mail Google autorizado">
               <Input
                 value={values.email}
                 onChange={(event) =>
                   setValues({ ...values, email: event.target.value })
                 }
               />
+              <span className="mt-1 block text-xs text-[var(--muted)]">
+                Informe o e-mail da conta Google que o freelancer utilizará para
+                acessar o sistema.
+              </span>
             </Field>
             <Field label="Telefone">
               <Input
@@ -1749,7 +1873,7 @@ function FreelancerNew({
           </label>
           <Button onClick={() => onSubmit(values)} variant="bronze">
             <UserPlus size={16} />
-            Cadastrar e convidar
+            Autorizar acesso
           </Button>
         </CardContent>
       </Card>
@@ -1852,6 +1976,197 @@ function FreelancerDetail({
   );
 }
 
+function AdminServices({
+  services,
+  onSave,
+}: {
+  services: ServiceRecord[];
+  onSave: (service: ServiceRecord) => void;
+}) {
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const editing = services.find((service) => service.id === editingId);
+  const [values, setValues] = useState({
+    name: "",
+    description: "",
+    defaultProfessionals: 1,
+    defaultFee: "150,00",
+    isActive: true,
+  });
+
+  function loadService(service: ServiceRecord) {
+    setEditingId(service.id);
+    setValues({
+      name: service.name,
+      description: service.description ?? "",
+      defaultProfessionals: service.defaultProfessionals,
+      defaultFee: service.defaultFeeCents
+        ? String((service.defaultFeeCents / 100).toFixed(2)).replace(".", ",")
+        : "",
+      isActive: service.isActive,
+    });
+  }
+
+  function resetForm() {
+    setEditingId(null);
+    setValues({
+      name: "",
+      description: "",
+      defaultProfessionals: 1,
+      defaultFee: "150,00",
+      isActive: true,
+    });
+  }
+
+  function submit() {
+    const now = new Date().toISOString();
+    onSave({
+      id: editing?.id ?? makeId("service"),
+      organizationId: demoOrganization.id,
+      name: values.name.trim(),
+      description: values.description.trim() || null,
+      defaultProfessionals: values.defaultProfessionals,
+      defaultFeeCents: values.defaultFee
+        ? parseMoneyToCents(values.defaultFee)
+        : null,
+      isActive: values.isActive,
+      createdAt: editing?.createdAt ?? now,
+      updatedAt: now,
+    });
+    resetForm();
+  }
+
+  return (
+    <>
+      <PageHeader
+        description="Catálogo usado na criação dos eventos e nas sugestões de vagas."
+        eyebrow="Admin"
+        title="Serviços"
+      />
+      <div className="grid gap-5 xl:grid-cols-[380px_1fr]">
+        <Card>
+          <CardHeader>
+            <CardTitle>{editing ? "Editar serviço" : "Novo serviço"}</CardTitle>
+            <CardDescription>
+              O valor final continua pertencendo a cada vaga do evento.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-4">
+            <Field label="Nome">
+              <Input
+                value={values.name}
+                onChange={(event) =>
+                  setValues({ ...values, name: event.target.value })
+                }
+              />
+            </Field>
+            <Field label="Descrição">
+              <Textarea
+                value={values.description}
+                onChange={(event) =>
+                  setValues({ ...values, description: event.target.value })
+                }
+              />
+            </Field>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Profissionais padrão">
+                <Input
+                  max={5}
+                  min={1}
+                  type="number"
+                  value={values.defaultProfessionals}
+                  onChange={(event) =>
+                    setValues({
+                      ...values,
+                      defaultProfessionals: Math.min(
+                        5,
+                        Math.max(1, Number(event.target.value)),
+                      ),
+                    })
+                  }
+                />
+              </Field>
+              <Field label="Valor padrão">
+                <Input
+                  value={values.defaultFee}
+                  onChange={(event) =>
+                    setValues({ ...values, defaultFee: event.target.value })
+                  }
+                />
+              </Field>
+            </div>
+            <label className="flex items-center gap-2 text-sm font-semibold">
+              <input
+                checked={values.isActive}
+                type="checkbox"
+                onChange={(event) =>
+                  setValues({ ...values, isActive: event.target.checked })
+                }
+              />
+              Serviço ativo
+            </label>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                disabled={!values.name.trim()}
+                onClick={submit}
+                variant="bronze"
+              >
+                Salvar serviço
+              </Button>
+              {editing ? (
+                <Button onClick={resetForm} variant="secondary">
+                  Cancelar edição
+                </Button>
+              ) : null}
+            </div>
+          </CardContent>
+        </Card>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          {services.map((service) => (
+            <Card className="min-w-0" key={service.id}>
+              <CardContent className="flex h-full min-w-0 flex-col gap-3 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <strong className="block truncate text-[var(--text)]">
+                      {service.name}
+                    </strong>
+                    <p className="mt-1 line-clamp-2 text-sm text-[var(--muted)]">
+                      {service.description ?? "Sem descrição."}
+                    </p>
+                  </div>
+                  <Badge tone={service.isActive ? "success" : "neutral"}>
+                    {service.isActive ? "Ativo" : "Inativo"}
+                  </Badge>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <MetricBox
+                    label="Profissionais"
+                    value={service.defaultProfessionals}
+                  />
+                  <MetricBox
+                    label="Valor padrão"
+                    value={
+                      service.defaultFeeCents
+                        ? formatMoney(service.defaultFeeCents)
+                        : "Sem valor"
+                    }
+                  />
+                </div>
+                <Button
+                  className="mt-auto w-full"
+                  onClick={() => loadService(service)}
+                  variant="secondary"
+                >
+                  Editar
+                </Button>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </div>
+    </>
+  );
+}
+
 function AdminFinance({
   metrics,
   profiles,
@@ -1878,6 +2193,22 @@ function AdminFinance({
   const freelancers = profiles.filter(
     (profile) => profile.role === "freelancer",
   );
+  const [freelancerFilter, setFreelancerFilter] = useState("all");
+  const [eventFilter, setEventFilter] = useState("all");
+  const [serviceFilter, setServiceFilter] = useState("all");
+  const [typeFilter, setTypeFilter] = useState("all");
+  const filteredEntries = entries.filter((entry) => {
+    const slot = slots.find(
+      (item) => item.id === entry.eventProfessionalSlotId,
+    );
+    const matchesFreelancer =
+      freelancerFilter === "all" || entry.freelancerId === freelancerFilter;
+    const matchesEvent = eventFilter === "all" || entry.eventId === eventFilter;
+    const matchesService =
+      serviceFilter === "all" || slot?.eventServiceId === serviceFilter;
+    const matchesType = typeFilter === "all" || entry.entryType === typeFilter;
+    return matchesFreelancer && matchesEvent && matchesService && matchesType;
+  });
 
   return (
     <>
@@ -1904,6 +2235,63 @@ function AdminFinance({
         paid={metrics.paidThisMonth}
         pending={metrics.totalDue}
       />
+      <Card className="mt-5">
+        <CardContent className="grid gap-4 p-4 sm:grid-cols-2 xl:grid-cols-4">
+          <Field label="Freelancer">
+            <Select
+              value={freelancerFilter}
+              onChange={(event) => setFreelancerFilter(event.target.value)}
+            >
+              <option value="all">Todos</option>
+              {freelancers.map((profile) => (
+                <option key={profile.id} value={profile.id}>
+                  {profile.fullName}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Evento">
+            <Select
+              value={eventFilter}
+              onChange={(event) => setEventFilter(event.target.value)}
+            >
+              <option value="all">Todos</option>
+              {events.map((event) => (
+                <option key={event.id} value={event.id}>
+                  {event.title}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Serviço">
+            <Select
+              value={serviceFilter}
+              onChange={(event) => setServiceFilter(event.target.value)}
+            >
+              <option value="all">Todos</option>
+              {eventServices.map((service) => (
+                <option key={service.id} value={service.id}>
+                  {service.serviceNameSnapshot}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Tipo">
+            <Select
+              value={typeFilter}
+              onChange={(event) => setTypeFilter(event.target.value)}
+            >
+              <option value="all">Todos</option>
+              <option value="event_earning">Receita de evento</option>
+              <option value="payment">Pagamento</option>
+              <option value="advance">Adiantamento</option>
+              <option value="positive_adjustment">Ajuste positivo</option>
+              <option value="negative_adjustment">Ajuste negativo</option>
+              <option value="reversal">Estorno</option>
+            </Select>
+          </Field>
+        </CardContent>
+      </Card>
       <div className="mt-5 grid gap-5 xl:grid-cols-[380px_1fr]">
         {showForm ? (
           <Card>
@@ -1927,7 +2315,7 @@ function AdminFinance({
           </Card>
         ) : null}
         <LedgerCard
-          entries={entries}
+          entries={filteredEntries}
           eventServices={eventServices}
           events={events}
           profiles={profiles}
@@ -1949,6 +2337,7 @@ function ReportsPage({
   byFreelancerChart: Array<Record<string, string | number>>;
   serviceChart: Array<{ name: string; valor: number; profissionais: number }>;
 }) {
+  const [period, setPeriod] = useState("current_month");
   return (
     <>
       <PageHeader
@@ -1956,6 +2345,32 @@ function ReportsPage({
         eyebrow="Relatórios"
         title="Análises da operação"
       />
+      <Card className="mb-5">
+        <CardContent className="grid gap-4 p-4 sm:grid-cols-2 lg:grid-cols-4">
+          <Field label="Período">
+            <Select
+              value={period}
+              onChange={(event) => setPeriod(event.target.value)}
+            >
+              <option value="current_month">Mês atual</option>
+              <option value="last_30">Últimos 30 dias</option>
+              <option value="last_3_months">Últimos 3 meses</option>
+              <option value="last_6_months">Últimos 6 meses</option>
+              <option value="current_year">Ano atual</option>
+              <option value="custom">Período personalizado</option>
+            </Select>
+          </Field>
+          <Field label="Data inicial">
+            <Input disabled={period !== "custom"} type="date" />
+          </Field>
+          <Field label="Data final">
+            <Input disabled={period !== "custom"} type="date" />
+          </Field>
+          <div className="flex items-end">
+            <Badge tone="brand">CSV disponível no financeiro</Badge>
+          </div>
+        </CardContent>
+      </Card>
       <div className="grid gap-5 xl:grid-cols-2">
         <ChartCard title="Eventos por mês">
           <ResponsiveContainer height={300} width="100%">
@@ -2015,9 +2430,11 @@ function ReportsPage({
 
 function SettingsPage({
   calendarConnected,
+  services,
   onConnectCalendar,
 }: {
   calendarConnected: boolean;
+  services: ServiceRecord[];
   onConnectCalendar: () => void;
 }) {
   return (
@@ -2049,7 +2466,7 @@ function SettingsPage({
             <CardTitle>Catálogo de serviços</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-3">
-            {demoServices.map((service) => (
+            {services.map((service) => (
               <div
                 className="rounded-lg border border-[var(--border)] p-3 text-sm"
                 key={service.id}
@@ -2100,9 +2517,9 @@ function IntegrationsPage({
   return (
     <>
       <PageHeader
-        description="Conexões externas exclusivas para administradores."
-        eyebrow="Configurações > Integrações"
-        title="Integrações"
+        description="Conexão administrativa para ler eventos da agenda da empresa."
+        eyebrow="Admin"
+        title="Google Agenda"
       />
       <Card>
         <CardContent className="grid gap-4 p-5 md:grid-cols-[1fr_auto] md:items-center">
@@ -2113,11 +2530,13 @@ function IntegrationsPage({
               </span>
               <div>
                 <strong className="text-lg text-[var(--text)]">
-                  Google Agenda
+                  Google Agenda da empresa
                 </strong>
                 <p className="text-sm text-[var(--muted)]">
-                  Importa nome, descrição, data, horário, local, endereço e
-                  link. Serviços, equipe, valores e aceite são definidos depois.
+                  Esta conexão é separada do login com Google. O login autentica
+                  usuários; esta autorização permite apenas ler eventos da
+                  agenda da empresa. Serviços, equipe, valores e aceite são
+                  definidos depois.
                 </p>
               </div>
             </div>
@@ -2167,16 +2586,24 @@ function FreelancerDashboard({
   const assignedSlots = slots.filter(
     (slot) => slot.assignedFreelancerId === freelancer.id,
   );
+  const upcomingSlots = assignedSlots.filter(
+    (slot) => slot.status !== "completed" && slot.status !== "cancelled",
+  );
+  const completedSlots = assignedSlots.filter(
+    (slot) => slot.status === "completed",
+  );
   const openSlots = getOpenSlotsForFreelancer(slots, freelancer.id);
 
   return (
     <>
-      <PageHeader
-        description="Eventos, trabalhos, oportunidades e extrato individual."
-        eyebrow="Freelancer"
-        title={`Olá, ${freelancer.fullName.split(" ")[0]}`}
-      />
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+      <section id="inicio">
+        <PageHeader
+          description="Tudo que você precisa acompanhar está reunido nesta página."
+          eyebrow="Freelancer"
+          title={`Olá, ${freelancer.fullName.split(" ")[0]}`}
+        />
+      </section>
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <StatCard
           description="Trabalhos já designados"
           icon={CalendarClock}
@@ -2217,17 +2644,29 @@ function FreelancerDashboard({
           value={formatMoney(Math.abs(metrics.balance))}
         />
       </div>
-      <div className="mt-5 grid gap-5 xl:grid-cols-2">
+      <section className="mt-5 grid gap-5 xl:grid-cols-2" id="trabalhos">
         <FreelancerSlotList
           entries={entries}
           eventServices={eventServices}
           events={events}
-          slots={assignedSlots}
+          slots={upcomingSlots}
           title="Próximos trabalhos"
         />
+        <FreelancerSlotList
+          entries={entries}
+          eventServices={eventServices}
+          events={events}
+          slots={completedSlots}
+          title="Eventos realizados"
+        />
+      </section>
+      <section className="mt-5" id="oportunidades">
         <Card>
           <CardHeader>
-            <CardTitle>Oportunidades disponíveis</CardTitle>
+            <CardTitle>Oportunidades abertas</CardTitle>
+            <CardDescription>
+              Vagas disponíveis para aceite na Traços Detalhados.
+            </CardDescription>
           </CardHeader>
           <CardContent className="grid gap-3">
             {openSlots.length > 0 ? (
@@ -2255,7 +2694,20 @@ function FreelancerDashboard({
             )}
           </CardContent>
         </Card>
-      </div>
+      </section>
+      <section
+        className="mt-5 grid gap-5 xl:grid-cols-[360px_1fr]"
+        id="financeiro"
+      >
+        <BalanceDisplay actor="freelancer" cents={metrics.balance} />
+        <LedgerCard
+          entries={entries}
+          eventServices={eventServices}
+          events={events}
+          profiles={[freelancer]}
+          slots={slots}
+        />
+      </section>
     </>
   );
 }
@@ -2682,4 +3134,10 @@ function translateEntryType(type: FinancialEntry["entryType"]) {
     reversal: "Estorno",
   };
   return labels[type];
+}
+
+function freelancerAccessStatus(profile: Profile) {
+  if (!profile.isActive) return "Conta inativa";
+  if (profile.firstAccessAt || profile.lastAccessAt) return "Acesso ativo";
+  return "Aguardando primeiro acesso";
 }
