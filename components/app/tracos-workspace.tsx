@@ -1233,7 +1233,7 @@ function AdminDashboard({
           </ResponsiveContainer>
         </ChartCard>
       </div>
-      <div className="mt-5 grid gap-5 xl:grid-cols-[1fr_420px]">
+      <div className="mt-5 grid gap-5 2xl:grid-cols-[minmax(0,1fr)_420px]">
         <FreelancerSummaryGrid summaries={summaries} />
         <AuditTimeline logs={auditLogs} profiles={profiles} />
       </div>
@@ -1620,32 +1620,44 @@ function FreelancerSummaryGrid({
   onSelectFreelancer?: (id: string) => void;
 }) {
   return (
-    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
       {summaries.map((summary) => (
-        <Card key={summary.profile.id}>
-          <CardContent className="grid gap-3 p-4">
-            <div className="flex items-center gap-3">
-              <span className="grid h-11 w-11 place-items-center rounded-md bg-[var(--graphite)] text-sm font-black text-white">
+        <Card className="min-w-0" key={summary.profile.id}>
+          <CardContent className="flex h-full min-w-0 flex-col gap-3 p-4">
+            <div className="flex min-w-0 items-center gap-3">
+              <span className="grid h-11 w-11 shrink-0 place-items-center rounded-md bg-[var(--graphite)] text-sm font-black text-white">
                 {initials(summary.profile.fullName)}
               </span>
-              <div>
-                <strong>{summary.profile.fullName}</strong>
-                <span className="block text-xs text-[var(--muted)]">
+              <div className="min-w-0">
+                <strong
+                  className="block truncate text-sm leading-5 text-[var(--text)]"
+                  title={summary.profile.fullName}
+                >
+                  {summary.profile.fullName}
+                </strong>
+                <span
+                  className="block max-w-full truncate text-xs text-[var(--muted)]"
+                  title={summary.profile.email}
+                >
                   {summary.profile.email}
                 </span>
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-2 text-sm">
+            <div className="grid min-w-0 grid-cols-2 gap-2 text-sm">
               <MetricBox label="Trabalhos" value={summary.completedSlots} />
               <MetricBox label="Saldo" value={formatMoney(summary.balance)} />
             </div>
             {summary.nextEvent ? (
-              <p className="text-sm text-[var(--muted)]">
+              <p
+                className="line-clamp-2 min-h-10 text-sm leading-5 text-[var(--muted)]"
+                title={`Próximo: ${summary.nextEvent.title}`}
+              >
                 Próximo: {summary.nextEvent.title}
               </p>
             ) : null}
             {onSelectFreelancer ? (
               <LinkButton
+                className="mt-auto w-full"
                 href={`/admin/freelancers/${summary.profile.id}`}
                 onClick={() => onSelectFreelancer(summary.profile.id)}
                 variant="secondary"
@@ -2592,9 +2604,13 @@ function ChartCard({
 
 function MetricBox({ label, value }: { label: string; value: ReactNode }) {
   return (
-    <div className="rounded-md bg-[var(--surface-muted)] p-3">
-      <strong className="block text-sm">{value}</strong>
-      <span className="text-xs text-[var(--muted)]">{label}</span>
+    <div className="min-w-0 rounded-md bg-[var(--surface-muted)] p-3">
+      <strong className="block truncate whitespace-nowrap text-sm tabular-nums">
+        {value}
+      </strong>
+      <span className="block truncate text-xs text-[var(--muted)]">
+        {label}
+      </span>
     </div>
   );
 }
