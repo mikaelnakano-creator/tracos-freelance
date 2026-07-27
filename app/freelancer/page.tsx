@@ -1,5 +1,5 @@
-import { TracosWorkspace } from "@/components/app/tracos-workspace";
+import { WorkspacePage } from "@/components/app/workspace-page";
 
 export default function FreelancerHomePage() {
-  return <TracosWorkspace role="freelancer" view="freelancer-dashboard" />;
+  return <WorkspacePage role="freelancer" view="freelancer-dashboard" />;
 }

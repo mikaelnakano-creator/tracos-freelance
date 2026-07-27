@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import {
   authorizeGoogleUser,
   createServiceRoleClientForAuth,
-  dashboardPathForRole,
+  dashboardPathForRoles,
 } from "@/lib/auth/access";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -42,7 +42,7 @@ export async function GET(request: NextRequest) {
     }
 
     return NextResponse.redirect(
-      new URL(dashboardPathForRole(access.role), origin),
+      new URL(dashboardPathForRoles(access.roles), origin),
     );
   } catch {
     return NextResponse.redirect(new URL("/acesso-negado", origin));

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   accessRedirectPath,
   dashboardPathForRole,
+  dashboardPathForRoles,
   type AppAccessResult,
 } from "@/lib/auth/access";
 
@@ -11,7 +12,7 @@ describe("autorização por Google e e-mail cadastrado", () => {
     expect(
       accessRedirectPath({
         status: "authorized",
-        role: "admin",
+        roles: ["admin"],
         profileId: "admin-1",
         organizationId: "org-1",
       }),
@@ -23,11 +24,25 @@ describe("autorização por Google e e-mail cadastrado", () => {
     expect(
       accessRedirectPath({
         status: "authorized",
-        role: "freelancer",
+        roles: ["freelancer"],
         profileId: "freelancer-1",
         organizationId: "org-1",
       }),
     ).toBe("/freelancer");
+  });
+
+  it("redireciona usuário com admin e freelancer para seleção de área", () => {
+    expect(dashboardPathForRoles(["admin", "freelancer"])).toBe(
+      "/selecionar-area",
+    );
+    expect(
+      accessRedirectPath({
+        status: "authorized",
+        roles: ["admin", "freelancer"],
+        profileId: "mikael",
+        organizationId: "org-1",
+      }),
+    ).toBe("/selecionar-area");
   });
 
   it("bloqueia e-mail Google não autorizado", () => {

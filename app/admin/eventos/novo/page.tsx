@@ -1,5 +1,5 @@
-import { TracosWorkspace } from "@/components/app/tracos-workspace";
+import { WorkspacePage } from "@/components/app/workspace-page";
 
 export default function AdminNewEventPage() {
-  return <TracosWorkspace role="admin" view="admin-event-new" />;
+  return <WorkspacePage role="admin" view="admin-event-new" />;
 }

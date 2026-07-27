@@ -5,28 +5,36 @@ import { describe, expect, it } from "vitest";
 const root = process.cwd();
 
 describe("migrations de acesso, vagas e RLS", () => {
-  it("mantém RPC atômica de aceite de vaga", () => {
+  it("mantem RPC atomica de aceite de vaga", () => {
     const migration = readFileSync(
-      join(root, "supabase/migrations/0003_event_team_slots.sql"),
+      join(root, "supabase/migrations/0005_multi_role_membership_rls.sql"),
       "utf8",
     );
 
     expect(migration).toContain("accept_open_event_slot");
     expect(migration).toContain("for update");
     expect(migration).toContain("Você já faz parte da equipe deste evento.");
+    expect(migration).toContain(
+      "Esta vaga acabou de ser aceita por outro freelancer.",
+    );
   });
 
-  it("mantém usuários autorizados e políticas RLS", () => {
+  it("mantem multiplos papeis, bootstrap e politicas RLS", () => {
     const migration = readFileSync(
-      join(root, "supabase/migrations/0004_google_authorized_access.sql"),
+      join(root, "supabase/migrations/0005_multi_role_membership_rls.sql"),
       "utf8",
     );
 
     expect(migration).toContain(
-      "create table if not exists public.authorized_users",
+      "create table if not exists public.organization_members",
     );
+    expect(migration).toContain(
+      "create table if not exists public.organization_member_roles",
+    );
+    expect(migration).toContain("bootstrap_google_user");
+    expect(migration).toContain("has_organization_role");
+    expect(migration).toContain("can_access_admin");
+    expect(migration).toContain("can_access_freelancer");
     expect(migration).toContain("enable row level security");
-    expect(migration).toContain("Admins manage authorized users");
-    expect(migration).toContain("Freelancers update own public profile");
   });
 });

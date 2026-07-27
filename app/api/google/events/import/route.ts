@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { isDemoModeAllowed } from "@/lib/env";
 
 const importSchema = z.object({
   googleCalendarId: z.string().min(1),
@@ -7,6 +8,16 @@ const importSchema = z.object({
 });
 
 export async function POST(request: Request) {
+  if (!isDemoModeAllowed()) {
+    return NextResponse.json(
+      {
+        error:
+          "Importação real depende da conexão do Google Agenda e do Supabase configurado.",
+      },
+      { status: 503 },
+    );
+  }
+
   const payload = importSchema.safeParse(await request.json());
 
   if (!payload.success) {
@@ -18,8 +29,7 @@ export async function POST(request: Request) {
 
   return NextResponse.json({
     ok: true,
-    message:
-      "Evento validado para importação. Em produção, a constraint única evita duplicidade.",
+    message: "Evento validado no modo demonstração.",
     data: payload.data,
   });
 }

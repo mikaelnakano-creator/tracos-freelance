@@ -1,269 +1,276 @@
 # Traços Freelance
 
-Sistema web da Traços Detalhados para administrar eventos, serviços, vagas de
-freelancers, aceite de trabalhos, pagamentos, saldos e importação do Google
-Agenda.
+Sistema web da Traços Detalhados para gestão de eventos, freelancers, vagas por serviço, aceite de trabalhos, financeiro por profissional e integração separada com Google Agenda.
 
-## Acesso
+## Funcionalidades
 
-O login é exclusivamente pelo Google via Supabase Auth.
-
-- Não há login por senha.
-- Não há cadastro público.
-- Não há recuperação ou alteração de senha na interface.
-- O usuário só acessa se o e-mail Google estiver previamente autorizado.
-- A função `admin` ou `freelancer` vem somente do banco de dados.
-
-Fluxo:
-
-1. O administrador cadastra o e-mail Google autorizado.
-2. O usuário entra em `/login` e clica em `Continuar com Google`.
-3. O callback valida o usuário no Supabase.
-4. O sistema procura o e-mail em `profiles` ou `authorized_users`.
-5. Usuário autorizado é vinculado ao `auth.users.id`.
-6. Usuário não autorizado vai para `/acesso-negado`.
-7. Usuário inativo vai para `/conta-inativa`.
-
-Redirecionamento:
-
-- Administrador: `/admin/dashboard`
-- Freelancer: `/freelancer`
-
-## Primeiro Administrador
-
-Configure:
-
-```env
-FIRST_ADMIN_EMAIL=admin@tracosdetalhados.com.br
-```
-
-No primeiro login Google, se esse e-mail bater com `FIRST_ADMIN_EMAIL` e ainda
-não existir nenhum administrador, o sistema cria o primeiro perfil admin para a
-organização Traços Detalhados.
-
-Depois disso, administradores novos devem ser autorizados por outro
-administrador.
+- Login exclusivo via Google usando Supabase Auth.
+- Controle de acesso por organização, membro e múltiplos papéis.
+- Um único usuário pode ser administrador e freelancer.
+- Bootstrap do primeiro administrador por `FIRST_ADMIN_EMAIL`.
+- Cadastro de freelancers pelo administrador sem senha.
+- Eventos com vários serviços e até 5 vagas profissionais.
+- Designação direta ou vaga aberta para aceite.
+- RPC transacional `accept_open_event_slot(slot_id uuid)`.
+- Financeiro com receitas positivas, pagamentos/adiantamentos negativos e saldo por freelancer.
+- Dashboard administrativo e dashboard único do freelancer em `/freelancer`.
+- Integração de Google Agenda separada do login, com escopo somente leitura.
+- Tela segura de configuração pendente quando a produção ainda não tem Supabase configurado.
 
 ## Stack
 
-- Next.js App Router
+- Next.js
+- React
 - TypeScript
+- Supabase Auth e Postgres
+- Row Level Security
 - Tailwind CSS
-- Componentes locais no padrão shadcn/ui
-- Supabase Auth, PostgreSQL, RPCs e RLS
-- Google OAuth para login
-- Google Calendar API para importação administrativa
-- Recharts
 - Vitest
 - Playwright
-- ChatGPT Sites / Vercel-ready
+- Vercel
+
+## Desenvolvimento Local
+
+```bash
+npm install
+npm run dev
+```
+
+Para validar:
+
+```bash
+npm run lint
+npm run typecheck
+npm run test
+npm run build
+```
+
+O modo de demonstração é permitido apenas em desenvolvimento/teste. Em produção, se as variáveis essenciais estiverem ausentes, o sistema mostra `/configuracao-pendente` e não carrega dados simulados como reais.
 
 ## Variáveis
 
-```env
+Crie `.env.local` a partir de `.env.example`:
+
+```bash
 NEXT_PUBLIC_APP_URL=http://localhost:3000
 
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
 
-FIRST_ADMIN_EMAIL=
+FIRST_ADMIN_EMAIL=mikaelnakano@gmail.com
 
-GOOGLE_CLIENT_ID=
-GOOGLE_CLIENT_SECRET=
-
+GOOGLE_CALENDAR_CLIENT_ID=
+GOOGLE_CALENDAR_CLIENT_SECRET=
 GOOGLE_CALENDAR_REDIRECT_URI=http://localhost:3000/api/google/calendar/callback
 GOOGLE_TOKEN_ENCRYPTION_KEY=
 ```
 
-No Supabase, habilite o provider Google com os escopos básicos de login:
+Não use `NEXT_PUBLIC_SUPABASE_ANON_KEY`; o projeto está padronizado em `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`.
 
-- `openid`
+## Modelo de Acesso
+
+`profiles` guarda a pessoa:
+
+- `id`
+- `auth_user_id`, preenchido no primeiro login
 - `email`
-- `profile`
+- `full_name`
+- `phone`
+- `pix_key`
+- `avatar_url`
+- `google_avatar_url`
+- `first_access_at`
+- `last_access_at`
+- `is_active`
 
-A integração do Google Agenda é separada do login e usa somente:
+`organization_members` associa o profile à organização.
 
-- `https://www.googleapis.com/auth/calendar.readonly`
+`organization_member_roles` guarda os papéis:
 
-Não misture tokens de login com tokens da Agenda.
+- `admin`
+- `freelancer`
 
-## Banco de Dados
+O usuário `mikaelnakano@gmail.com` pode possuir os dois papéis no mesmo profile. Se tiver admin e freelancer, após login ele é enviado para `/selecionar-area`.
 
-Migrations:
+## Primeiro Administrador
 
-- `0001_initial_schema.sql`: organização, perfis, eventos, financeiro, Google e
-  auditoria.
-- `0002_event_status_values.sql`: novos status de equipe.
-- `0003_event_team_slots.sql`: serviços, vagas profissionais, RPC de aceite,
-  financeiro por vaga e RLS.
-- `0004_google_authorized_access.sql`: `authorized_users`, vínculo Google,
-  primeiro acesso, último acesso e proteção de atualização de perfil.
+Configure:
 
-Tabelas principais:
-
-- `organizations`
-- `profiles`
-- `authorized_users`
-- `services`
-- `events`
-- `event_services`
-- `event_professional_slots`
-- `financial_entries`
-- `google_connections`
-- `audit_logs`
-
-## Regras de Eventos
-
-Cada evento pode ter de 1 a 5 profissionais.
-
-Exemplo:
-
-- Fotografia: 1 profissional
-- Filmagem: 1 profissional
-- Selfie impressa: 2 profissionais
-
-Cada vaga tem:
-
-- serviço;
-- número da vaga;
-- forma de preenchimento;
-- freelancer designado ou vaga aberta;
-- valor combinado;
-- status;
-- pagamentos e saldo próprios.
-
-Status:
-
-- Rascunho
-- Aberto
-- Equipe parcial
-- Equipe completa
-- Concluído
-- Cancelado
-
-O aceite acontece por vaga pela RPC segura:
-
-```sql
-accept_open_event_slot(slot_id uuid)
+```bash
+FIRST_ADMIN_EMAIL=mikaelnakano@gmail.com
 ```
 
-Ela bloqueia a vaga, confirma que continua aberta, impede duas vagas para o
-mesmo freelancer no mesmo evento e atualiza o status geral.
+No primeiro login desse e-mail, quando ainda não existir administrador ativo na organização Traços Detalhados, a função SQL `bootstrap_google_user` cria ou vincula:
 
-## Financeiro
+- organização Traços Detalhados;
+- profile;
+- organization_member;
+- papel `admin`;
+- papel `freelancer`;
+- datas de acesso;
+- audit log.
 
-Convenção em `financial_entries`:
+Esse fluxo roda no servidor e não confia em papel enviado pelo frontend.
 
-- receita do freelancer: valor positivo;
-- pagamento ao freelancer: valor negativo;
-- adiantamento: valor negativo;
-- estorno: lançamento novo, sem apagar histórico.
+## Supabase
 
-Exemplos:
+As migrations estão em `supabase/migrations` e devem ser aplicadas em ordem:
 
-- Receita `+R$ 150,00`
-- Pagamento `-R$ 100,00`
-- Saldo `R$ 50,00 a receber`
+1. `0001_initial_schema.sql`
+2. `0002_event_status_values.sql`
+3. `0003_event_team_slots.sql`
+4. `0004_google_authorized_access.sql`
+5. `0005_multi_role_membership_rls.sql`
 
-Outro caso:
+### Opção A: Supabase Dashboard
 
-- Receita `+R$ 150,00`
-- Pagamento `-R$ 200,00`
-- Saldo `R$ 50,00 adiantado`
+1. Crie um projeto Supabase.
+2. Abra o SQL Editor.
+3. Aplique os arquivos acima na ordem.
+4. Configure as variáveis na Vercel.
 
-Cada receita de vaga concluída é idempotente: não pode existir mais de um
-`event_earning` para a mesma vaga.
+### Opção B: Supabase CLI
 
-## Área Administrativa
+```bash
+supabase login
+supabase link --project-ref SEU_PROJECT_REF
+supabase db push
+```
 
-Rotas:
+Seed de desenvolvimento:
 
-- `/admin/dashboard`
-- `/admin/eventos`
-- `/admin/eventos/novo`
-- `/admin/eventos/[id]`
-- `/admin/eventos/[id]/editar`
-- `/admin/freelancers`
-- `/admin/freelancers/novo`
-- `/admin/freelancers/[id]`
-- `/admin/servicos`
-- `/admin/financeiro`
-- `/admin/financeiro/lancamentos`
-- `/admin/relatorios`
-- `/admin/google-agenda`
-- `/admin/configuracoes`
+```bash
+supabase db reset
+```
 
-O administrador possui sidebar, dashboard completo, gestão de eventos,
-freelancers, serviços, financeiro, relatórios, Google Agenda e configurações.
+O seed cria organização, Mikael como admin + freelancer, freelancers fictícios, eventos e lançamentos. Ele não cria usuários reais do Google nem tokens.
 
-## Área do Freelancer
+## Segurança e RLS
 
-O freelancer usa apenas:
+A migration `0005_multi_role_membership_rls.sql` cria ou revisa:
 
-- `/freelancer`
+- `current_profile_id()`
+- `current_member_id(organization_id)`
+- `has_organization_role(organization_id, role)`
+- `is_active_member(organization_id)`
+- `can_access_admin(organization_id)`
+- `can_access_freelancer(organization_id)`
+- `bootstrap_google_user(...)`
+- `accept_open_event_slot(slot_id uuid)`
 
-Não há sidebar nem páginas separadas. O dashboard único mostra:
+RLS fica ativa nas tabelas expostas. Administradores acessam dados da própria organização. Freelancers acessam apenas seu próprio profile, suas vagas, seus lançamentos e vagas abertas da organização.
 
-- resumo;
-- próximos trabalhos;
-- oportunidades abertas;
-- eventos realizados;
-- resumo financeiro;
-- extrato próprio.
+## Google Login no Supabase
 
-O freelancer vê somente seus próprios dados, vagas e lançamentos financeiros.
+1. Crie ou escolha um projeto no Google Cloud.
+2. Configure OAuth consent screen.
+3. Crie um cliente OAuth para Supabase Auth.
+4. No Google Cloud, adicione:
+
+```text
+https://SEU-PROJECT-REF.supabase.co/auth/v1/callback
+```
+
+5. No Supabase, habilite o provider Google.
+6. Configure Client ID e Client Secret no Supabase.
+7. Configure Site URL com a URL da Vercel.
+8. Configure Redirect URL:
+
+```text
+https://URL-DA-VERCEL/auth/callback
+```
+
+Não coloque o Client Secret do login Google em variável pública do Next.js.
 
 ## Google Agenda
 
-A Agenda é uma integração administrativa, separada do login.
+A Agenda é uma autorização separada e exclusiva da administração.
 
-Fluxo:
+Callback:
 
-1. Administrador acessa `Google Agenda`.
-2. Conecta a agenda com OAuth próprio.
-3. Seleciona eventos.
-4. O sistema importa nome, descrição, data, horário, local, endereço e link.
-5. O administrador completa serviços, vagas, valores e equipe.
-
-A constraint única evita importar o mesmo evento duas vezes.
-
-## Seed
-
-O seed em `supabase/seed/seed.sql` inclui:
-
-- organização Traços Detalhados;
-- perfis de demonstração;
-- e-mails autorizados;
-- catálogo de serviços;
-- eventos futuros e concluídos;
-- vagas abertas;
-- equipe parcial e completa;
-- pagamentos parciais;
-- pagamentos completos;
-- adiantamentos.
-
-O seed não cria usuários reais no Google.
-
-## Validação
-
-```bash
-npm run format:check
-npm run lint
-npm run typecheck
-npm run test
-npm run build
-npm run test:e2e
+```text
+https://URL-DA-VERCEL/api/google/calendar/callback
 ```
 
-## Produção
+Variáveis:
 
-1. Criar projeto Supabase.
-2. Executar as migrations `0001` a `0004`.
-3. Configurar Google OAuth no Supabase.
-4. Definir `FIRST_ADMIN_EMAIL`.
-5. Configurar Google Calendar API com callback
-   `/api/google/calendar/callback`.
-6. Configurar variáveis no provedor.
-7. Fazer login com o primeiro admin.
-8. Autorizar freelancers pelo e-mail Google.
+```bash
+GOOGLE_CALENDAR_CLIENT_ID=
+GOOGLE_CALENDAR_CLIENT_SECRET=
+GOOGLE_CALENDAR_REDIRECT_URI=
+GOOGLE_TOKEN_ENCRYPTION_KEY=
+```
+
+Gere a chave de criptografia com:
+
+```bash
+openssl rand -base64 32
+```
+
+Não versione essa chave.
+
+## Deploy na Vercel
+
+Projeto esperado:
+
+- Nome: `tracos-freelance`
+- Framework Preset: Next.js
+- Production Branch: `main`
+- Build Command: `npm run build`
+- Output: padrão do Next.js
+
+Configure imediatamente:
+
+```bash
+FIRST_ADMIN_EMAIL=mikaelnakano@gmail.com
+```
+
+Depois que a URL final da Vercel existir, configure:
+
+```bash
+NEXT_PUBLIC_APP_URL=https://URL-REAL-DA-VERCEL
+```
+
+Não configure valores fictícios para Supabase ou Google Agenda. Se Supabase ainda estiver ausente, o deploy deve abrir a tela de configuração pendente.
+
+## Financeiro
+
+Convenção dos lançamentos:
+
+- Receita: positiva.
+- Pagamento: negativa.
+- Adiantamento: negativo.
+- Ajuste positivo: positivo.
+- Ajuste negativo: negativo.
+
+Saldo é a soma dos lançamentos do freelancer.
+
+Exemplos:
+
+- `+ R$ 150,00` e `- R$ 100,00` resulta em `R$ 50,00 a receber`.
+- `+ R$ 150,00` e `- R$ 200,00` resulta em `R$ 50,00 em adiantamento`.
+
+O banco usa `numeric(12,2)` para dinheiro.
+
+## Limitações Atuais
+
+- As migrations estão prontas, mas não são aplicadas automaticamente em um Supabase real.
+- Login real depende de Supabase Auth com Google configurado.
+- Google Agenda depende de credenciais próprias e conexão administrativa.
+- Sem variáveis reais em produção, o sistema mostra configuração pendente e não usa dados simulados.
+
+## Checklist de Produção
+
+- Aplicar migrations no Supabase.
+- Configurar Google provider no Supabase.
+- Configurar variáveis Supabase na Vercel.
+- Configurar `FIRST_ADMIN_EMAIL`.
+- Configurar `NEXT_PUBLIC_APP_URL` com a URL real.
+- Fazer novo deploy após alterar variáveis.
+- Entrar com `mikaelnakano@gmail.com`.
+- Confirmar `/selecionar-area`.
+- Cadastrar freelancers com e-mail Google.
+- Testar aceite de vaga aberta.
+- Testar lançamento financeiro.
+- Configurar Google Agenda separadamente.

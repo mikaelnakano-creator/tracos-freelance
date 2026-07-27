@@ -24,7 +24,7 @@ insert into public.profiles (
   is_active
 )
 values
-  ('22222222-2222-4222-8222-222222222221', '11111111-1111-4111-8111-111111111111', 'admin', 'Mikael Nakano', 'admin@tracosdetalhados.com.br', '(65) 99999-0001', null, 'Administrador principal.', true),
+  ('22222222-2222-4222-8222-222222222221', '11111111-1111-4111-8111-111111111111', 'admin', 'Mikael Nakano', 'mikaelnakano@gmail.com', '(65) 99999-0001', null, 'Administrador principal e freelancer.', true),
   ('33333333-3333-4333-8333-333333333331', '11111111-1111-4111-8111-111111111111', 'freelancer', 'Ana Clara Mendes', 'ana@parceiros.com.br', '(65) 98888-1001', 'ana@pix.com', 'Fotografia social.', true),
   ('33333333-3333-4333-8333-333333333332', '11111111-1111-4111-8111-111111111111', 'freelancer', 'Bruno Reis', 'bruno@parceiros.com.br', '(65) 98888-1002', 'bruno@pix.com', 'Filmagem e making of.', true),
   ('33333333-3333-4333-8333-333333333333', '11111111-1111-4111-8111-111111111111', 'freelancer', 'Lívia Santos', 'livia@parceiros.com.br', '(65) 98888-1003', '11988447766', 'Assistente de luz.', true),
@@ -52,7 +52,7 @@ insert into public.authorized_users (
   first_access_at
 )
 values
-  ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1', '11111111-1111-4111-8111-111111111111', 'admin@tracosdetalhados.com.br', 'admin', 'Mikael Nakano', '(65) 99999-0001', null, true, null, null),
+  ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1', '11111111-1111-4111-8111-111111111111', 'mikaelnakano@gmail.com', 'admin', 'Mikael Nakano', '(65) 99999-0001', null, true, null, null),
   ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2', '11111111-1111-4111-8111-111111111111', 'ana@parceiros.com.br', 'freelancer', 'Ana Clara Mendes', '(65) 98888-1001', 'ana@pix.com', true, '22222222-2222-4222-8222-222222222221', null),
   ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa3', '11111111-1111-4111-8111-111111111111', 'bruno@parceiros.com.br', 'freelancer', 'Bruno Reis', '(65) 98888-1002', 'bruno@pix.com', true, '22222222-2222-4222-8222-222222222221', null),
   ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa4', '11111111-1111-4111-8111-111111111111', 'livia@parceiros.com.br', 'freelancer', 'Lívia Santos', '(65) 98888-1003', '11988447766', true, '22222222-2222-4222-8222-222222222221', null),
@@ -67,6 +67,39 @@ set email = excluded.email,
     pix_key = excluded.pix_key,
     is_active = excluded.is_active,
     invited_by = excluded.invited_by;
+
+insert into public.organization_members (
+  organization_id,
+  profile_id,
+  is_active
+)
+select organization_id, id, is_active
+from public.profiles
+where organization_id = '11111111-1111-4111-8111-111111111111'
+on conflict (organization_id, profile_id) do update
+set is_active = excluded.is_active,
+    updated_at = now();
+
+insert into public.organization_member_roles (
+  organization_member_id,
+  role
+)
+select om.id, p.role
+from public.organization_members om
+join public.profiles p on p.id = om.profile_id
+where om.organization_id = '11111111-1111-4111-8111-111111111111'
+  and p.role is not null
+on conflict (organization_member_id, role) do nothing;
+
+insert into public.organization_member_roles (
+  organization_member_id,
+  role
+)
+select om.id, 'freelancer'
+from public.organization_members om
+where om.organization_id = '11111111-1111-4111-8111-111111111111'
+  and om.profile_id = '22222222-2222-4222-8222-222222222221'
+on conflict (organization_member_id, role) do nothing;
 
 insert into public.services (
   id,

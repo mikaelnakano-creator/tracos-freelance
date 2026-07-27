@@ -32,7 +32,12 @@ function startServer() {
     [nextCli, "start", "--hostname", "127.0.0.1", "--port", "3125"],
     {
       cwd: root,
-      env: { ...process.env, NEXT_PUBLIC_APP_URL: baseURL },
+      env: {
+        ...process.env,
+        NEXT_PUBLIC_APP_URL: baseURL,
+        NEXT_PUBLIC_TRACOS_ENABLE_DEMO: "true",
+        TRACOS_ENABLE_DEMO: "true",
+      },
       stdio: "inherit",
     },
   );
@@ -95,7 +100,10 @@ let server;
 let exitCode = 0;
 
 try {
-  await runNode([nextCli, "build"]);
+  await runNode([nextCli, "build"], {
+    NEXT_PUBLIC_TRACOS_ENABLE_DEMO: "true",
+    TRACOS_ENABLE_DEMO: "true",
+  });
   server = startServer();
   await waitForServer(server);
   await runNode([playwrightCli, "test"], { PLAYWRIGHT_BASE_URL: baseURL });

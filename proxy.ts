@@ -1,7 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-const protectedPrefixes = ["/admin", "/freelancer"];
+const protectedPrefixes = ["/admin", "/freelancer", "/selecionar-area"];
 type Role = "admin" | "freelancer";
 
 export async function proxy(request: NextRequest) {
@@ -14,7 +14,18 @@ export async function proxy(request: NextRequest) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
 
+  const demoAllowed =
+    process.env.NODE_ENV !== "production" ||
+    process.env.TRACOS_ENABLE_DEMO === "true" ||
+    process.env.NEXT_PUBLIC_TRACOS_ENABLE_DEMO === "true";
+
   if (!supabaseUrl || !supabaseKey) {
+    if (!demoAllowed) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/configuracao-pendente";
+      return NextResponse.redirect(url);
+    }
+
     const response = NextResponse.next();
     response.headers.set("x-tracos-demo-mode", "true");
     return response;
@@ -54,9 +65,24 @@ export async function proxy(request: NextRequest) {
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("role, is_active")
-    .eq("id", user.id)
-    .maybeSingle<{ role: Role; is_active: boolean }>();
+    .select(
+      "id, is_active, organization_members(is_active, organization_member_roles(role))",
+    )
+    .eq("auth_user_id", user.id)
+    .maybeSingle<{
+      id: string;
+      is_active: boolean;
+      organization_members:
+        | Array<{
+            is_active: boolean;
+            organization_member_roles: Array<{ role: Role }>;
+          }>
+        | {
+            is_active: boolean;
+            organization_member_roles: Array<{ role: Role }>;
+          }
+        | null;
+    }>();
 
   if (!profile) {
     const url = request.nextUrl.clone();
@@ -64,16 +90,25 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  if (!profile.is_active) {
+  const memberships = Array.isArray(profile.organization_members)
+    ? profile.organization_members
+    : profile.organization_members
+      ? [profile.organization_members]
+      : [];
+  const activeMemberships = memberships.filter((member) => member.is_active);
+  const roles = new Set<Role>(
+    activeMemberships.flatMap((member) =>
+      member.organization_member_roles.map((roleRow) => roleRow.role),
+    ),
+  );
+
+  if (!profile.is_active || activeMemberships.length === 0) {
     const url = request.nextUrl.clone();
     url.pathname = "/conta-inativa";
     return NextResponse.redirect(url);
   }
 
-  if (
-    request.nextUrl.pathname.startsWith("/admin") &&
-    profile.role !== "admin"
-  ) {
+  if (request.nextUrl.pathname.startsWith("/admin") && !roles.has("admin")) {
     const url = request.nextUrl.clone();
     url.pathname = "/freelancer";
     return NextResponse.redirect(url);
@@ -81,7 +116,7 @@ export async function proxy(request: NextRequest) {
 
   if (
     request.nextUrl.pathname.startsWith("/freelancer") &&
-    profile.role !== "freelancer"
+    !roles.has("freelancer")
   ) {
     const url = request.nextUrl.clone();
     url.pathname = "/admin/dashboard";
@@ -92,5 +127,10 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/admin/:path*", "/freelancer", "/freelancer/:path*"],
+  matcher: [
+    "/admin/:path*",
+    "/freelancer",
+    "/freelancer/:path*",
+    "/selecionar-area",
+  ],
 };

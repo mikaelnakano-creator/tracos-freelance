@@ -19,7 +19,12 @@ export function FreelancerSelector({
     >
       {includeOpen ? <option value="">Deixar aberto</option> : null}
       {freelancers
-        .filter((profile) => profile.role === "freelancer" && profile.isActive)
+        .filter(
+          (profile) =>
+            (profile.roles?.includes("freelancer") ??
+              profile.role === "freelancer") &&
+            profile.isActive,
+        )
         .map((profile) => (
           <option key={profile.id} value={profile.id}>
             {profile.fullName}

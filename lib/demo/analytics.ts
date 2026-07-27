@@ -136,7 +136,7 @@ export function getFreelancerSummaries(
   slots: EventProfessionalSlot[],
 ) {
   return profiles
-    .filter((profile) => profile.role === "freelancer")
+    .filter((profile) => hasRole(profile, "freelancer"))
     .map((profile) => {
       const freelancerSlots = slots.filter(
         (slot) =>
@@ -181,6 +181,10 @@ export function getFreelancerSummaries(
         balance: getFreelancerBalance(entries, profile.id),
       };
     });
+}
+
+function hasRole(profile: Profile, role: "admin" | "freelancer") {
+  return profile.roles?.includes(role) ?? profile.role === role;
 }
 
 export function getServiceRevenueRows(

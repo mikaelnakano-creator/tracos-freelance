@@ -113,9 +113,12 @@ import type {
   EventService,
   FinancialEntry,
   GoogleCalendarEvent,
+  Organization,
   Profile,
   ServiceRecord,
+  UserRole,
 } from "@/lib/domain/types";
+import type { WorkspaceData } from "@/lib/domain/workspace-data";
 import type {
   EventFormValues,
   FinancialEntryFormValues,
@@ -164,6 +167,20 @@ const adminLinks = [
 
 const chartColors = ["#2f7a78", "#496aaf", "#236f59", "#bd3f32", "#805ad5"];
 
+const demoWorkspaceData: WorkspaceData = {
+  organization: demoOrganization,
+  currentProfile: null,
+  profiles: demoProfiles,
+  services: demoServices,
+  events: demoEvents,
+  eventServices: demoEventServices,
+  professionalSlots: demoProfessionalSlots,
+  financialEntries: demoFinancialEntries,
+  acceptances: demoAcceptances,
+  auditLogs: demoAuditLogs,
+  googleEvents: demoGoogleEvents,
+};
+
 function makeId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
@@ -172,42 +189,78 @@ export function TracosWorkspace({
   view,
   entityId,
   role,
+  data,
+  demoMode = false,
 }: {
   view: WorkspaceView;
   entityId?: string;
   role: "admin" | "freelancer";
+  data?: WorkspaceData;
+  demoMode?: boolean;
 }) {
-  const [events, setEvents] = useState<EventRecord[]>(demoEvents);
-  const [eventServices, setEventServices] =
-    useState<EventService[]>(demoEventServices);
+  const workspaceData = data ?? demoWorkspaceData;
+  const organization = workspaceData.organization;
+  const [events, setEvents] = useState<EventRecord[]>(workspaceData.events);
+  const [eventServices, setEventServices] = useState<EventService[]>(
+    workspaceData.eventServices,
+  );
   const [professionalSlots, setProfessionalSlots] = useState<
     EventProfessionalSlot[]
-  >(demoProfessionalSlots);
-  const [profiles, setProfiles] = useState<Profile[]>(demoProfiles);
-  const [services, setServices] = useState<ServiceRecord[]>(demoServices);
-  const [entries, setEntries] =
-    useState<FinancialEntry[]>(demoFinancialEntries);
-  const [acceptances, setAcceptances] =
-    useState<EventAcceptance[]>(demoAcceptances);
-  const [auditLogs, setAuditLogs] = useState<AuditLog[]>(demoAuditLogs);
+  >(workspaceData.professionalSlots);
+  const [profiles, setProfiles] = useState<Profile[]>(workspaceData.profiles);
+  const [services, setServices] = useState<ServiceRecord[]>(
+    workspaceData.services,
+  );
+  const [entries, setEntries] = useState<FinancialEntry[]>(
+    workspaceData.financialEntries,
+  );
+  const [acceptances, setAcceptances] = useState<EventAcceptance[]>(
+    workspaceData.acceptances,
+  );
+  const [auditLogs, setAuditLogs] = useState<AuditLog[]>(
+    workspaceData.auditLogs,
+  );
   const [selectedFreelancerId, setSelectedFreelancerId] = useState(
-    demoProfiles.find((profile) => profile.role === "freelancer")?.id ?? "",
+    workspaceData.currentProfile &&
+      profileHasRole(workspaceData.currentProfile, "freelancer")
+      ? workspaceData.currentProfile.id
+      : (workspaceData.profiles.find((profile) =>
+          profileHasRole(profile, "freelancer"),
+        )?.id ?? ""),
   );
   const [calendarConnected, setCalendarConnected] = useState(false);
   const [googleDialogOpen, setGoogleDialogOpen] = useState(false);
   const [importedEvent, setImportedEvent] =
     useState<GoogleCalendarEvent | null>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [toast, setToast] = useState("Sistema pronto para operação.");
+  const [toast, setToast] = useState(
+    demoMode
+      ? "Modo demonstração ativo apenas para desenvolvimento e testes."
+      : "Sistema conectado aos dados do Supabase.",
+  );
 
-  const admin = profiles.find((profile) => profile.role === "admin")!;
+  const fallbackProfile = makeFallbackProfile(organization.id, role);
+  const admin =
+    (workspaceData.currentProfile &&
+    profileHasRole(workspaceData.currentProfile, "admin")
+      ? workspaceData.currentProfile
+      : profiles.find((profile) => profileHasRole(profile, "admin"))) ??
+    fallbackProfile;
   const activeFreelancers = profiles.filter(
-    (profile) => profile.role === "freelancer" && profile.isActive,
+    (profile) => profileHasRole(profile, "freelancer") && profile.isActive,
   );
   const currentFreelancer =
+    (workspaceData.currentProfile &&
+    profileHasRole(workspaceData.currentProfile, "freelancer")
+      ? workspaceData.currentProfile
+      : null) ??
     profiles.find((profile) => profile.id === selectedFreelancerId) ??
-    activeFreelancers[0];
+    activeFreelancers[0] ??
+    fallbackProfile;
   const currentUser = role === "admin" ? admin : currentFreelancer;
+  const canSwitchAreas =
+    profileHasRole(currentUser, "admin") &&
+    profileHasRole(currentUser, "freelancer");
   const adminMetrics = getAdminMetrics(events, entries, professionalSlots);
   const freelancerMetrics = getFreelancerMetrics(
     currentFreelancer.id,
@@ -223,7 +276,7 @@ export function TracosWorkspace({
   );
   const balancesByFreelancer = Object.fromEntries(
     profiles
-      .filter((profile) => profile.role === "freelancer")
+      .filter((profile) => profileHasRole(profile, "freelancer"))
       .map((profile) => [
         profile.id,
         getFreelancerBalance(entries, profile.id),
@@ -322,7 +375,7 @@ export function TracosWorkspace({
     setAuditLogs((current) => [
       {
         id: makeId("audit"),
-        organizationId: demoOrganization.id,
+        organizationId: organization.id,
         userId: currentUser.id,
         action,
         entityType,
@@ -383,7 +436,7 @@ export function TracosWorkspace({
 
     const nextServices: EventService[] = values.services.map((service) => ({
       id: makeId("event-service"),
-      organizationId: demoOrganization.id,
+      organizationId: organization.id,
       eventId,
       serviceId: service.serviceId,
       serviceNameSnapshot: service.serviceNameSnapshot,
@@ -402,7 +455,7 @@ export function TracosWorkspace({
               : null;
           return {
             id: makeId("slot"),
-            organizationId: demoOrganization.id,
+            organizationId: organization.id,
             eventId,
             eventServiceId: nextServices[serviceIndex].id,
             slotNumber: slot.slotNumber,
@@ -429,7 +482,7 @@ export function TracosWorkspace({
 
     const baseEvent: EventRecord = {
       id: eventId,
-      organizationId: demoOrganization.id,
+      organizationId: organization.id,
       title: values.title,
       serviceName: values.services
         .map((service) => service.serviceNameSnapshot)
@@ -627,7 +680,7 @@ export function TracosWorkspace({
       values.entryType === "payment" || values.entryType === "advance"
         ? registerPayment({
             id: makeId("entry"),
-            organizationId: demoOrganization.id,
+            organizationId: organization.id,
             freelancerId: values.freelancerId,
             eventId,
             eventProfessionalSlotId: slotId,
@@ -640,7 +693,7 @@ export function TracosWorkspace({
           })
         : {
             id: makeId("entry"),
-            organizationId: demoOrganization.id,
+            organizationId: organization.id,
             freelancerId: values.freelancerId,
             eventId,
             eventProfessionalSlotId: slotId,
@@ -664,7 +717,7 @@ export function TracosWorkspace({
   function handleInviteFreelancer(values: FreelancerFormValues) {
     const profile: Profile = {
       id: makeId("profile"),
-      organizationId: demoOrganization.id,
+      organizationId: organization.id,
       role: "freelancer",
       fullName: values.fullName,
       email: values.email,
@@ -758,7 +811,7 @@ export function TracosWorkspace({
           <GoogleCalendarImportDialog
             connected={calendarConnected}
             existingEvents={events}
-            googleEvents={demoGoogleEvents}
+            googleEvents={workspaceData.googleEvents}
             isOpen={googleDialogOpen}
             onClose={() => setGoogleDialogOpen(false)}
             onConnect={() => {
@@ -778,6 +831,7 @@ export function TracosWorkspace({
     if (view === "admin-services") {
       return (
         <AdminServices
+          organizationId={organization.id}
           services={services}
           onSave={(service) => {
             setServices((current) => {
@@ -885,6 +939,7 @@ export function TracosWorkspace({
       return (
         <SettingsPage
           calendarConnected={calendarConnected}
+          organization={organization}
           services={services}
           onConnectCalendar={() => setCalendarConnected(true)}
         />
@@ -952,7 +1007,7 @@ export function TracosWorkspace({
 
   if (role === "freelancer") {
     return (
-      <FreelancerShell user={currentFreelancer}>
+      <FreelancerShell canSwitchAreas={canSwitchAreas} user={currentFreelancer}>
         <Toast message={toast} onClose={() => setToast("")} />
         {renderView()}
       </FreelancerShell>
@@ -969,6 +1024,7 @@ export function TracosWorkspace({
       </div>
       <div className="grid lg:grid-cols-[280px_1fr]">
         <Sidebar
+          canSwitchAreas={canSwitchAreas}
           links={adminLinks}
           mobileOpen={mobileOpen}
           role={role}
@@ -985,9 +1041,11 @@ export function TracosWorkspace({
 }
 
 function FreelancerShell({
+  canSwitchAreas,
   user,
   children,
 }: {
+  canSwitchAreas: boolean;
   user: Profile;
   children: ReactNode;
 }) {
@@ -1009,6 +1067,12 @@ function FreelancerShell({
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {canSwitchAreas ? (
+              <LinkButton href="/selecionar-area" size="sm" variant="ghost">
+                <LayoutDashboard size={14} />
+                Trocar de área
+              </LinkButton>
+            ) : null}
             <span className="hidden h-9 w-9 place-items-center rounded-full bg-[var(--surface-muted)] text-xs font-black text-[var(--text)] sm:grid">
               {initials(user.fullName)}
             </span>
@@ -1041,12 +1105,14 @@ function FreelancerShell({
 }
 
 function Sidebar({
+  canSwitchAreas,
   links,
   user,
   role,
   mobileOpen,
   onClose,
 }: {
+  canSwitchAreas: boolean;
   links: typeof adminLinks;
   user: Profile;
   role: "admin" | "freelancer";
@@ -1105,6 +1171,12 @@ function Sidebar({
           })}
         </nav>
         <div className="mt-auto grid gap-3 p-4">
+          {canSwitchAreas ? (
+            <LinkButton href="/selecionar-area" variant="secondary">
+              <LayoutDashboard size={16} />
+              Trocar de área
+            </LinkButton>
+          ) : null}
           <div className="flex items-center gap-3 rounded-md bg-white/8 p-3">
             <span className="grid h-10 w-10 place-items-center rounded-md bg-white/15 text-xs font-black">
               {initials(user.fullName)}
@@ -1447,7 +1519,7 @@ function AdminEvents({
             >
               <option value="all">Todos</option>
               {profiles
-                .filter((profile) => profile.role === "freelancer")
+                .filter((profile) => profileHasRole(profile, "freelancer"))
                 .map((profile) => (
                   <option key={profile.id} value={profile.id}>
                     {profile.fullName}
@@ -1505,7 +1577,8 @@ function EventEditor({
       />
       <EventForm
         freelancers={profiles.filter(
-          (profile) => profile.role === "freelancer" && profile.isActive,
+          (profile) =>
+            profileHasRole(profile, "freelancer") && profile.isActive,
         )}
         importedEvent={importedEvent}
         services={services}
@@ -1977,9 +2050,11 @@ function FreelancerDetail({
 }
 
 function AdminServices({
+  organizationId,
   services,
   onSave,
 }: {
+  organizationId: string;
   services: ServiceRecord[];
   onSave: (service: ServiceRecord) => void;
 }) {
@@ -2021,7 +2096,7 @@ function AdminServices({
     const now = new Date().toISOString();
     onSave({
       id: editing?.id ?? makeId("service"),
-      organizationId: demoOrganization.id,
+      organizationId,
       name: values.name.trim(),
       description: values.description.trim() || null,
       defaultProfessionals: values.defaultProfessionals,
@@ -2190,8 +2265,8 @@ function AdminFinance({
   onSubmit: (values: FinancialEntryFormValues) => void;
   onExportCsv: () => void;
 }) {
-  const freelancers = profiles.filter(
-    (profile) => profile.role === "freelancer",
+  const freelancers = profiles.filter((profile) =>
+    profileHasRole(profile, "freelancer"),
   );
   const [freelancerFilter, setFreelancerFilter] = useState("all");
   const [eventFilter, setEventFilter] = useState("all");
@@ -2430,10 +2505,12 @@ function ReportsPage({
 
 function SettingsPage({
   calendarConnected,
+  organization,
   services,
   onConnectCalendar,
 }: {
   calendarConnected: boolean;
+  organization: Organization;
   services: ServiceRecord[];
   onConnectCalendar: () => void;
 }) {
@@ -2451,13 +2528,13 @@ function SettingsPage({
           </CardHeader>
           <CardContent className="grid gap-4">
             <Field label="Nome">
-              <Input value={demoOrganization.name} readOnly />
+              <Input value={organization.name} readOnly />
             </Field>
             <Field label="Slug">
-              <Input value={demoOrganization.slug} readOnly />
+              <Input value={organization.slug} readOnly />
             </Field>
             <Field label="Timezone">
-              <Input value={demoOrganization.timezone} readOnly />
+              <Input value={organization.timezone} readOnly />
             </Field>
           </CardContent>
         </Card>
@@ -3140,4 +3217,28 @@ function freelancerAccessStatus(profile: Profile) {
   if (!profile.isActive) return "Conta inativa";
   if (profile.firstAccessAt || profile.lastAccessAt) return "Acesso ativo";
   return "Aguardando primeiro acesso";
+}
+
+function profileHasRole(profile: Profile, role: UserRole) {
+  return profile.roles?.includes(role) ?? profile.role === role;
+}
+
+function makeFallbackProfile(
+  organizationId: string,
+  role: "admin" | "freelancer",
+): Profile {
+  return {
+    id: "",
+    organizationId,
+    role,
+    roles: [role],
+    authUserId: null,
+    fullName: role === "admin" ? "Administrador" : "Freelancer",
+    email: "",
+    phone: "",
+    pixKey: null,
+    avatarUrl: null,
+    notes: null,
+    isActive: false,
+  };
 }

@@ -10,10 +10,10 @@ export function createGoogleOAuthState() {
 }
 
 export function buildGoogleAuthorizationUrl(state: string) {
-  const env = requireEnv(["GOOGLE_CLIENT_ID"]);
+  const env = requireEnv(["GOOGLE_CALENDAR_CLIENT_ID"]);
   const url = new URL("https://accounts.google.com/o/oauth2/v2/auth");
 
-  url.searchParams.set("client_id", env.GOOGLE_CLIENT_ID);
+  url.searchParams.set("client_id", env.GOOGLE_CALENDAR_CLIENT_ID);
   url.searchParams.set("redirect_uri", getGoogleCalendarRedirectUri());
   url.searchParams.set("response_type", "code");
   url.searchParams.set("scope", GOOGLE_CALENDAR_SCOPES.join(" "));
@@ -25,15 +25,18 @@ export function buildGoogleAuthorizationUrl(state: string) {
 }
 
 export async function exchangeGoogleCode(code: string) {
-  const env = requireEnv(["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"]);
+  const env = requireEnv([
+    "GOOGLE_CALENDAR_CLIENT_ID",
+    "GOOGLE_CALENDAR_CLIENT_SECRET",
+  ]);
 
   const response = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
       code,
-      client_id: env.GOOGLE_CLIENT_ID,
-      client_secret: env.GOOGLE_CLIENT_SECRET,
+      client_id: env.GOOGLE_CALENDAR_CLIENT_ID,
+      client_secret: env.GOOGLE_CALENDAR_CLIENT_SECRET,
       redirect_uri: getGoogleCalendarRedirectUri(),
       grant_type: "authorization_code",
     }),
@@ -54,8 +57,7 @@ export async function exchangeGoogleCode(code: string) {
 
 function getGoogleCalendarRedirectUri() {
   const env = getOptionalEnv();
-  const redirectUri =
-    env.GOOGLE_CALENDAR_REDIRECT_URI ?? env.GOOGLE_REDIRECT_URI;
+  const redirectUri = env.GOOGLE_CALENDAR_REDIRECT_URI;
 
   if (!redirectUri) {
     throw new Error(

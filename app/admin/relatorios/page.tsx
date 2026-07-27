@@ -1,5 +1,5 @@
-import { TracosWorkspace } from "@/components/app/tracos-workspace";
+import { WorkspacePage } from "@/components/app/workspace-page";
 
 export default function AdminReportsPage() {
-  return <TracosWorkspace role="admin" view="admin-reports" />;
+  return <WorkspacePage role="admin" view="admin-reports" />;
 }

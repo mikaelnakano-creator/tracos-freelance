@@ -1,4 +1,4 @@
-import { TracosWorkspace } from "@/components/app/tracos-workspace";
+import { WorkspacePage } from "@/components/app/workspace-page";
 
 export default async function AdminEventEditPage({
   params,
@@ -6,5 +6,5 @@ export default async function AdminEventEditPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  return <TracosWorkspace entityId={id} role="admin" view="admin-event-edit" />;
+  return <WorkspacePage entityId={id} role="admin" view="admin-event-edit" />;
 }

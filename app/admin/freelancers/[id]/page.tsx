@@ -1,4 +1,4 @@
-import { TracosWorkspace } from "@/components/app/tracos-workspace";
+import { WorkspacePage } from "@/components/app/workspace-page";
 
 export default async function AdminFreelancerDetailPage({
   params,
@@ -7,10 +7,6 @@ export default async function AdminFreelancerDetailPage({
 }) {
   const { id } = await params;
   return (
-    <TracosWorkspace
-      entityId={id}
-      role="admin"
-      view="admin-freelancer-detail"
-    />
+    <WorkspacePage entityId={id} role="admin" view="admin-freelancer-detail" />
   );
 }

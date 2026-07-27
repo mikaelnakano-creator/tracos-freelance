@@ -235,7 +235,7 @@ export function acceptOpenEventSlot(input: {
   acceptanceId: string;
   createdAt: string;
 }) {
-  if (input.freelancer.role !== "freelancer" || !input.freelancer.isActive) {
+  if (!hasRole(input.freelancer, "freelancer") || !input.freelancer.isActive) {
     return { ok: false as const, message: "Freelancer inativo ou inválido." };
   }
 
@@ -555,7 +555,7 @@ export function acceptOpenEvent(input: {
   acceptanceId: string;
   createdAt: string;
 }) {
-  if (input.freelancer.role !== "freelancer" || !input.freelancer.isActive) {
+  if (!hasRole(input.freelancer, "freelancer") || !input.freelancer.isActive) {
     return { ok: false as const, message: "Freelancer inativo ou inválido." };
   }
 
@@ -602,7 +602,7 @@ export function canProfileReadEvent(
   if (profile.organizationId !== event.organizationId || !profile.isActive) {
     return false;
   }
-  if (profile.role === "admin") return true;
+  if (hasRole(profile, "admin")) return true;
   return getEventSlots(slots, event.id).some(
     (slot) =>
       slot.status === "open" || slot.assignedFreelancerId === profile.id,
@@ -616,7 +616,7 @@ export function canProfileReadSlot(
   if (profile.organizationId !== slot.organizationId || !profile.isActive) {
     return false;
   }
-  if (profile.role === "admin") return true;
+  if (hasRole(profile, "admin")) return true;
   return slot.status === "open" || slot.assignedFreelancerId === profile.id;
 }
 
@@ -627,5 +627,9 @@ export function canProfileReadFinancialEntry(
   if (profile.organizationId !== entry.organizationId || !profile.isActive) {
     return false;
   }
-  return profile.role === "admin" || entry.freelancerId === profile.id;
+  return hasRole(profile, "admin") || entry.freelancerId === profile.id;
+}
+
+function hasRole(profile: Profile, role: "admin" | "freelancer") {
+  return profile.roles?.includes(role) ?? profile.role === role;
 }

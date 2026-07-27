@@ -32,7 +32,8 @@ export function DataTable({
   onFreelancerChange: (value: string) => void;
 }) {
   const freelancers = profiles.filter(
-    (profile) => profile.role === "freelancer",
+    (profile) =>
+      profile.roles?.includes("freelancer") ?? profile.role === "freelancer",
   );
   const filtered = events
     .filter((event) => (status === "all" ? true : event.status === status))

@@ -36,6 +36,8 @@ export type Profile = {
   id: string;
   organizationId: string;
   role: UserRole;
+  roles?: UserRole[];
+  authUserId?: string | null;
   fullName: string;
   email: string;
   phone: string;
