@@ -10,13 +10,14 @@ export async function GET(request: NextRequest) {
     !env.NEXT_PUBLIC_SUPABASE_URL ||
     !env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
   ) {
-    return NextResponse.redirect(
+    return redirectWithCookies(
       new URL(
         shouldShowPendingConfiguration()
           ? "/configuracao-pendente"
           : "/acesso-negado",
         origin,
       ),
+      NextResponse.next({ request }),
     );
   }
 
@@ -38,7 +39,10 @@ export async function GET(request: NextRequest) {
   });
 
   if (error || !data.url) {
-    return NextResponse.redirect(new URL("/login?erro=google", origin));
+    return redirectWithCookies(
+      new URL("/login?erro=google", origin),
+      cookieResponse,
+    );
   }
 
   return redirectWithCookies(new URL(data.url), cookieResponse);

@@ -73,7 +73,7 @@ describe("autorização por Google e e-mail cadastrado", () => {
     };
 
     expect(accessRedirectPath(access)).toBe(
-      "/acesso-negado?erro=profile_query_failed",
+      "/erro-sessao?erro=profile_query_failed",
     );
   });
 

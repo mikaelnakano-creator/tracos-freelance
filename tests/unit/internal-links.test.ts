@@ -28,4 +28,8 @@ describe("links internos administrativos", () => {
     expect(workspaceSource).not.toMatch(/NEXT_PUBLIC_APP_URL.*\/admin/);
     expect(workspaceSource).not.toMatch(/https:\/\/[^"']*vercel\.app\/admin/);
   });
+
+  it("desativa prefetch nos links protegidos da navegacao", () => {
+    expect(workspaceSource).toContain("prefetch={false}");
+  });
 });

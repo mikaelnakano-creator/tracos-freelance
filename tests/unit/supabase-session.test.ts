@@ -16,7 +16,7 @@ describe("persistencia de sessao Supabase no proxy", () => {
     process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY = "publishable-key";
   });
 
-  it("copia cookies fragmentados para redirects", () => {
+  it("copia cookies fragmentados para redirects e impede cache", () => {
     const sourceResponse = NextResponse.next();
     sourceResponse.cookies.set("sb-test-auth-token.0", "fresh-0", {
       path: "/",
@@ -30,14 +30,16 @@ describe("persistencia de sessao Supabase no proxy", () => {
       sourceResponse,
     );
 
+    expect(response.headers.get("cache-control")).toBe(
+      "private, no-store, max-age=0",
+    );
     expect(response.cookies.get("sb-test-auth-token.0")?.value).toBe("fresh-0");
     expect(response.cookies.get("sb-test-auth-token.1")?.value).toBe("fresh-1");
   });
 
-  it("renova cookies no proxy e preserva a sessao em rota admin", async () => {
-    mockSupabaseClient({
+  it("renova cookies no proxy e preserva a sessao em rota admin sem consultar perfil", async () => {
+    const fromSpy = mockSupabaseClient({
       claimsUserId: "auth-user-1",
-      profile: adminFreelancerProfile(),
       refreshedCookie: "fresh-token",
     });
 
@@ -46,9 +48,13 @@ describe("persistencia de sessao Supabase no proxy", () => {
     );
 
     expect(response.headers.get("location")).toBeNull();
+    expect(response.headers.get("cache-control")).toBe(
+      "private, no-store, max-age=0",
+    );
     expect(response.cookies.get("sb-test-auth-token")?.value).toBe(
       "fresh-token",
     );
+    expect(fromSpy).not.toHaveBeenCalled();
   });
 
   it("preserva cookies renovados ao redirecionar usuario sem sessao para login", async () => {
@@ -64,40 +70,41 @@ describe("persistencia de sessao Supabase no proxy", () => {
     expect(response.headers.get("location")).toBe(
       "https://tracos.test/login?redirectedFrom=%2Fadmin%2Ffinanceiro",
     );
+    expect(response.headers.get("cache-control")).toBe(
+      "private, no-store, max-age=0",
+    );
     expect(response.cookies.get("sb-test-auth-token")?.value).toBe(
       "cleared-or-refreshed",
     );
   });
 
-  it("redireciona sessao com dois papeis em /login para selecionar area", async () => {
+  it("nao redireciona prefetch sem sessao para login", async () => {
     mockSupabaseClient({
-      claimsUserId: "auth-user-1",
-      profile: adminFreelancerProfile(),
-      refreshedCookie: "fresh-token",
+      claimsUserId: null,
+      refreshedCookie: "ignored",
     });
 
-    const response = await updateSession(
-      new NextRequest("https://tracos.test/login"),
-    );
+    const request = new NextRequest("https://tracos.test/admin/eventos", {
+      headers: {
+        "next-router-prefetch": "1",
+      },
+    });
+    const response = await updateSession(request);
 
-    expect(response.headers.get("location")).toBe(
-      "https://tracos.test/selecionar-area",
-    );
-    expect(response.cookies.get("sb-test-auth-token")?.value).toBe(
-      "fresh-token",
-    );
+    expect(response.headers.get("location")).toBeNull();
+    expect(response.cookies.get("sb-test-auth-token")).toBeUndefined();
   });
 });
 
 function mockSupabaseClient({
   claimsUserId,
-  profile,
   refreshedCookie,
 }: {
   claimsUserId: string | null;
-  profile?: unknown;
   refreshedCookie: string;
 }) {
+  const fromSpy = vi.fn();
+
   mockedCreateServerClient.mockImplementation((_, __, options) => {
     const cookieOptions = options as unknown as {
       cookies: {
@@ -126,31 +133,9 @@ function mockSupabaseClient({
           error: claimsUserId ? null : new Error("missing session"),
         })),
       },
-      from: vi.fn(() => ({
-        select: vi.fn(() => ({
-          eq: vi.fn(() => ({
-            maybeSingle: vi.fn(async () => ({
-              data: profile ?? null,
-              error: null,
-            })),
-          })),
-        })),
-      })),
+      from: fromSpy,
     } as never;
   });
-}
 
-function adminFreelancerProfile() {
-  return {
-    id: "profile-1",
-    organization_id: "org-1",
-    is_active: true,
-    organization_members: [
-      {
-        organization_id: "org-1",
-        is_active: true,
-        organization_member_roles: [{ role: "admin" }, { role: "freelancer" }],
-      },
-    ],
-  };
+  return fromSpy;
 }

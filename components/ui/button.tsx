@@ -49,18 +49,30 @@ export function Button({
   );
 }
 
+type LinkButtonProps = React.AnchorHTMLAttributes<HTMLAnchorElement> &
+  VariantProps<typeof buttonVariants> & {
+    prefetch?: boolean;
+  };
+
 export function LinkButton({
   className,
   variant,
   size,
   href,
+  prefetch,
   ...props
-}: React.AnchorHTMLAttributes<HTMLAnchorElement> &
-  VariantProps<typeof buttonVariants>) {
+}: LinkButtonProps) {
   const classes = cn(buttonVariants({ variant, size, className }));
 
   if (isInternalHref(href)) {
-    return <Link className={classes} href={href} {...props} />;
+    return (
+      <Link
+        className={classes}
+        href={href}
+        prefetch={prefetch ?? false}
+        {...props}
+      />
+    );
   }
 
   return <a className={classes} href={href} {...props} />;

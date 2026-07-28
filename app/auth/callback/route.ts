@@ -10,14 +10,15 @@ import { createSupabaseRouteClient } from "@/lib/supabase/server";
 export async function GET(request: NextRequest) {
   const origin = request.nextUrl.origin;
   const code = request.nextUrl.searchParams.get("code");
+  const cookieResponse = NextResponse.next({ request });
 
   if (!code) {
-    return NextResponse.redirect(
+    return redirectWithCookies(
       new URL("/login?erro=oauth_exchange_failed", origin),
+      cookieResponse,
     );
   }
 
-  const cookieResponse = NextResponse.next({ request });
   const supabase = createSupabaseRouteClient(request, cookieResponse);
 
   const { error: exchangeError } =

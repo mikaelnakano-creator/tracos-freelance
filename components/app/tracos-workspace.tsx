@@ -1073,7 +1073,12 @@ function FreelancerShell({
           </div>
           <div className="flex items-center gap-2">
             {canSwitchAreas ? (
-              <LinkButton href="/selecionar-area" size="sm" variant="ghost">
+              <LinkButton
+                href="/selecionar-area"
+                prefetch={false}
+                size="sm"
+                variant="ghost"
+              >
                 <LayoutDashboard size={14} />
                 Trocar de área
               </LinkButton>
@@ -1168,6 +1173,7 @@ function Sidebar({
                 className="flex items-center gap-3 rounded-md px-3 py-2 text-sm font-semibold text-white/75 hover:bg-white/10 hover:text-white"
                 href={link.href}
                 key={link.href}
+                prefetch={false}
               >
                 <Icon size={18} />
                 {link.label}
@@ -1177,7 +1183,11 @@ function Sidebar({
         </nav>
         <div className="mt-auto grid gap-3 p-4">
           {canSwitchAreas ? (
-            <LinkButton href="/selecionar-area" variant="secondary">
+            <LinkButton
+              href="/selecionar-area"
+              prefetch={false}
+              variant="secondary"
+            >
               <LayoutDashboard size={16} />
               Trocar de área
             </LinkButton>

@@ -79,7 +79,7 @@ export function accessRedirectPath(access: AppAccessResult) {
     case "inactive":
       return "/conta-inativa";
     case "error":
-      return `/acesso-negado?erro=${access.code ?? "profile_query_failed"}`;
+      return `/erro-sessao?erro=${access.code ?? "profile_query_failed"}`;
     case "unauthorized":
       return "/acesso-negado";
   }
