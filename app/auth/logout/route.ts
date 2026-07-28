@@ -1,13 +1,19 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { redirectWithCookies } from "@/lib/supabase/proxy";
+import { createSupabaseRouteClient } from "@/lib/supabase/server";
 
 export async function GET(request: NextRequest) {
+  const cookieResponse = NextResponse.next({ request });
+
   try {
-    const supabase = await createSupabaseServerClient();
+    const supabase = createSupabaseRouteClient(request, cookieResponse);
     await supabase.auth.signOut();
   } catch {
-    // Sem Supabase configurado, o modo demonstração apenas volta ao login.
+    // Without Supabase configuration, demo mode just returns to login.
   }
 
-  return NextResponse.redirect(new URL("/login", request.nextUrl.origin));
+  return redirectWithCookies(
+    new URL("/login", request.nextUrl.origin),
+    cookieResponse,
+  );
 }

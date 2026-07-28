@@ -1,4 +1,5 @@
 import * as React from "react";
+import Link from "next/link";
 import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
@@ -52,13 +53,19 @@ export function LinkButton({
   className,
   variant,
   size,
+  href,
   ...props
 }: React.AnchorHTMLAttributes<HTMLAnchorElement> &
   VariantProps<typeof buttonVariants>) {
-  return (
-    <a
-      className={cn(buttonVariants({ variant, size, className }))}
-      {...props}
-    />
-  );
+  const classes = cn(buttonVariants({ variant, size, className }));
+
+  if (isInternalHref(href)) {
+    return <Link className={classes} href={href} {...props} />;
+  }
+
+  return <a className={classes} href={href} {...props} />;
+}
+
+function isInternalHref(href: string | undefined): href is string {
+  return Boolean(href?.startsWith("/") && !href.startsWith("//"));
 }

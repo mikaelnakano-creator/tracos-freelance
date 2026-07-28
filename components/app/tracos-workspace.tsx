@@ -1018,7 +1018,12 @@ export function TracosWorkspace({
     <div className="min-h-screen bg-[var(--background)]">
       <div className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-[var(--border)] bg-white px-4 lg:hidden">
         <strong>Traços Freelance</strong>
-        <Button onClick={() => setMobileOpen(true)} size="icon" variant="ghost">
+        <Button
+          aria-label="Abrir menu"
+          onClick={() => setMobileOpen(true)}
+          size="icon"
+          variant="ghost"
+        >
           <Menu size={20} />
         </Button>
       </div>

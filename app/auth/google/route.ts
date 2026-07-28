@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getOptionalEnv, shouldShowPendingConfiguration } from "@/lib/env";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { redirectWithCookies } from "@/lib/supabase/proxy";
+import { createSupabaseRouteClient } from "@/lib/supabase/server";
 
 export async function GET(request: NextRequest) {
   const origin = request.nextUrl.origin;
@@ -23,7 +24,8 @@ export async function GET(request: NextRequest) {
   const redirectTo = new URL("/auth/callback", origin);
   redirectTo.searchParams.set("next", safeNextPath(next));
 
-  const supabase = await createSupabaseServerClient();
+  const cookieResponse = NextResponse.next({ request });
+  const supabase = createSupabaseRouteClient(request, cookieResponse);
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: "google",
     options: {
@@ -39,7 +41,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(new URL("/login?erro=google", origin));
   }
 
-  return NextResponse.redirect(data.url);
+  return redirectWithCookies(new URL(data.url), cookieResponse);
 }
 
 function safeNextPath(value: string) {

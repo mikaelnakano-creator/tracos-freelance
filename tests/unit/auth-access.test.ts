@@ -55,6 +55,28 @@ describe("autorização por Google e e-mail cadastrado", () => {
     expect(accessRedirectPath(access)).toBe("/acesso-negado");
   });
 
+  it("diferencia sessao ausente de acesso negado", () => {
+    const access: AppAccessResult = {
+      status: "unauthenticated",
+      message: "Sessao ausente.",
+      code: "missing_session",
+    };
+
+    expect(accessRedirectPath(access)).toBe("/login");
+  });
+
+  it("nao transforma erro de consulta em novo login", () => {
+    const access: AppAccessResult = {
+      status: "error",
+      message: "Nao foi possivel consultar seu acesso agora.",
+      code: "profile_query_failed",
+    };
+
+    expect(accessRedirectPath(access)).toBe(
+      "/acesso-negado?erro=profile_query_failed",
+    );
+  });
+
   it("bloqueia conta inativa", () => {
     const access: AppAccessResult = {
       status: "inactive",

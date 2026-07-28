@@ -11,7 +11,8 @@ import {
 } from "@/lib/env";
 import type { UserRole } from "@/lib/domain/types";
 
-export type AppAccessStatus = "authorized" | "unauthorized" | "inactive";
+export type AppAccessStatus =
+  "authorized" | "unauthenticated" | "unauthorized" | "inactive" | "error";
 
 export type AppAccessResult =
   | {
@@ -21,8 +22,9 @@ export type AppAccessResult =
       organizationId: string;
     }
   | {
-      status: "unauthorized" | "inactive";
+      status: "unauthenticated" | "unauthorized" | "inactive" | "error";
       message: string;
+      code?: string;
     };
 
 type AccessRoleRow = {
@@ -72,8 +74,12 @@ export function accessRedirectPath(access: AppAccessResult) {
   switch (access.status) {
     case "authorized":
       return dashboardPathForRoles(access.roles);
+    case "unauthenticated":
+      return "/login";
     case "inactive":
       return "/conta-inativa";
+    case "error":
+      return `/acesso-negado?erro=${access.code ?? "profile_query_failed"}`;
     case "unauthorized":
       return "/acesso-negado";
   }
@@ -144,11 +150,17 @@ export async function getCurrentAppAccess(): Promise<AppAccessResult> {
   }
 
   const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { data, error } = await supabase.auth.getClaims();
+  const authUserId =
+    typeof data?.claims?.sub === "string" ? data.claims.sub : null;
 
-  if (!user) redirect("/login");
+  if (error || !authUserId) {
+    return {
+      status: "unauthenticated",
+      message: "SessÃ£o ausente.",
+      code: "missing_session",
+    };
+  }
 
   if (!hasSupabaseServerEnv()) {
     return {
@@ -158,7 +170,19 @@ export async function getCurrentAppAccess(): Promise<AppAccessResult> {
   }
 
   const adminClient = createSupabaseAdminClient();
-  return getAccessByAuthUserId(adminClient, user.id);
+  try {
+    return await getAccessByAuthUserId(adminClient, authUserId);
+  } catch (queryError) {
+    logAccessIssue("profile_query_failed", {
+      errorName: queryError instanceof Error ? queryError.name : "unknown",
+    });
+
+    return {
+      status: "error",
+      message: "NÃ£o foi possÃ­vel consultar seu acesso agora.",
+      code: "profile_query_failed",
+    };
+  }
 }
 
 export async function getAccessByAuthUserId(
@@ -295,4 +319,15 @@ function isVerifiedGoogleEmail(user: User) {
 function toArray<T>(value: T[] | T | null | undefined): T[] {
   if (!value) return [];
   return Array.isArray(value) ? value : [value];
+}
+
+function logAccessIssue(
+  code: string,
+  context: Record<string, boolean | string> = {},
+) {
+  console.warn("[tracos-auth-access]", {
+    code,
+    route: "server",
+    ...context,
+  });
 }
