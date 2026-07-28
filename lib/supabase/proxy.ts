@@ -10,6 +10,12 @@ export async function updateSession(request: NextRequest) {
   setNoStore(response);
 
   if (isPrefetchRequest(request)) {
+    if (isProtectedRoute(pathname)) {
+      const prefetchResponse = new NextResponse(null, { status: 204 });
+      setNoStore(prefetchResponse);
+      return prefetchResponse;
+    }
+
     return response;
   }
 
@@ -103,9 +109,15 @@ export function setNoStore(response: NextResponse) {
 }
 
 function isPrefetchRequest(request: NextRequest) {
+  const purpose = request.headers.get("purpose")?.toLowerCase();
+  const secPurpose = request.headers.get("sec-purpose")?.toLowerCase();
+
   return (
     request.headers.has("next-router-prefetch") ||
-    request.headers.get("purpose") === "prefetch"
+    request.headers.has("x-middleware-prefetch") ||
+    purpose === "prefetch" ||
+    secPurpose === "prefetch" ||
+    secPurpose === "prefetch;prerender"
   );
 }
 

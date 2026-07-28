@@ -78,7 +78,7 @@ describe("persistencia de sessao Supabase no proxy", () => {
     );
   });
 
-  it("nao redireciona prefetch sem sessao para login", async () => {
+  it("responde prefetch protegido sem redirect para login", async () => {
     mockSupabaseClient({
       claimsUserId: null,
       refreshedCookie: "ignored",
@@ -91,6 +91,7 @@ describe("persistencia de sessao Supabase no proxy", () => {
     });
     const response = await updateSession(request);
 
+    expect(response.status).toBe(204);
     expect(response.headers.get("location")).toBeNull();
     expect(response.cookies.get("sb-test-auth-token")).toBeUndefined();
   });
